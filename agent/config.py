@@ -54,6 +54,7 @@ class Settings:
 
     # 응답
     max_tool_rounds: int = 3            # LLM 호출 최대 횟수(마지막 회차는 툴 없이)
+    sentence_gap_ms: int = -1           # 말하는 소리 조각(첫 마디·채움말·결과 문구·답 문장) 사이 쉼. 음수면 responder.DEFAULT_SENTENCE_GAP_MS(300), 0이면 끔
     tts_combine: bool = True            # 회차의 첫 문장 뒤 문장들은 묶어서 한 번에 합성(게이트웨이 TTS는 스트리밍이 없고 분당 요청 한도가 있다)
     preload_orders: bool = False        # 연결 직후 발신자 전화번호로 주문을 미리 조회해 맥락에 넣는다(AG-T34). 기본 끔:
                                         # 2026-11-21 텍스트 평가 80문항에서 켜면 응대 65.9 → 57.2(주문과 무관한 문의에 조회 기록이 붙어 감점)

@@ -1,6 +1,7 @@
 """응답기: LLM 스트리밍 + 툴 루프 → 문장 분할 → 문장별 TTS(다음 문장 미리 합성) → 송신 콜백."""
 from __future__ import annotations
 
+import array
 import asyncio
 import json
 import logging
@@ -151,6 +152,35 @@ class Prefetch:
 
 
 # ── 송신 파이프라인 ───────────────────────────────────
+# 문장 사이 쉼(사용자 요청 2026-11-21): 상담원이 말하는 소리 조각(첫 마디·채움말·결과 문구·답 문장) 사이에 이만큼의 무음을
+# 보장한다. 조각 끝의 무음과 응답을 기다리며 이미 흐른 시간은 빼고 모자란 만큼만 채운다. 그 턴의 첫 소리 앞에는 넣지 않는다.
+# Settings.sentence_gap_ms가 음수면 이 기본값(테스트는 conftest에서 0으로 둔다).
+DEFAULT_SENTENCE_GAP_MS = 300
+_GAP_SILENT_RMS = 300.0         # 이보다 작은 20ms 프레임은 무음으로 센다(조각 끝 무음 길이)
+_FRAME = 640                    # 20ms, 16kHz s16le
+
+
+def sentence_gap_ms(settings: Any) -> int:
+    v = getattr(settings, "sentence_gap_ms", -1)
+    return DEFAULT_SENTENCE_GAP_MS if v is None or v < 0 else int(v)
+
+
+def _tail_silence_ms(pcm: bytes, prev_ms: float) -> float:
+    """pcm을 이어 보낸 뒤 끝에 이어진 무음 길이(ms). pcm 전체가 무음이면 앞의 무음에 더한다."""
+    pcm = pcm[: len(pcm) // 2 * 2]
+    tail = 0.0
+    end = len(pcm)
+    while end > 0:
+        start = max(0, end - _FRAME)
+        a = array.array("h")
+        a.frombytes(pcm[start:end])
+        if a and (sum(x * x for x in a) / len(a)) ** 0.5 >= _GAP_SILENT_RMS:
+            return tail
+        tail += (end - start) / 32.0
+        end = start
+    return prev_ms + tail
+
+
 class _Speaker:
     """문장이 들어오는 즉시 합성을 시작하고(파이프라인), 순서대로 송신한다."""
 
@@ -165,6 +195,8 @@ class _Speaker:
         self.tlog = tlog
         self.q: asyncio.Queue = asyncio.Queue()
         self.synths: list[asyncio.Task] = []
+        self._tail_ms = 0.0                 # 지금까지 보낸 소리 끝의 무음 길이
+        self._play_end: float | None = None # 보낸 소리가 실시간으로 재생을 마칠 것으로 보는 시각(perf_counter)
         self.task = asyncio.create_task(self._run())
 
     def say(self, text: str) -> None:
@@ -191,6 +223,28 @@ class _Speaker:
         except Exception as e:  # noqa: BLE001
             out.put_nowait(e)
 
+    async def _send(self, pcm: bytes) -> None:
+        await self.send_audio(pcm)
+        now = time.perf_counter()
+        start = now if self._play_end is None or self._play_end < now else self._play_end
+        self._play_end = start + len(pcm) / 32000.0
+        self._tail_ms = _tail_silence_ms(pcm, self._tail_ms)
+
+    async def _gap(self) -> None:
+        """다음 조각 앞에 쉼을 둔다. 이번 턴에 이미 말한 것이 있을 때만(첫 소리를 늦추지 않는다)."""
+        gap = sentence_gap_ms(self.settings)
+        if gap <= 0 or not self.spoken:
+            return
+        need = gap - self._tail_ms
+        if self._play_end is not None:              # 앞 조각이 이미 다 재생된 뒤 기다린 시간도 쉼이다
+            need -= max(0.0, (time.perf_counter() - self._play_end) * 1000)
+        if need < 20:
+            return
+        n = int(need * 16) * 2                      # 16 샘플/ms × 2바이트
+        await self._send(b"\x00" * n)
+        if self.tlog:
+            self.tlog.event("sentence_gap", ms=round(need))
+
     async def _run(self) -> None:
         while True:
             item = await self.q.get()
@@ -198,9 +252,10 @@ class _Speaker:
                 return
             kind, text, payload = item
             if kind == "pcm":
+                await self._gap()
                 self.spoken.append(text)
                 self._notify(kind, payload)
-                await self.send_audio(payload)
+                await self._send(payload)
                 continue
             first = True
             while True:
@@ -210,10 +265,11 @@ class _Speaker:
                 if isinstance(chunk, BaseException):
                     raise chunk
                 if first:
+                    await self._gap()
                     self.spoken.append(text)
                     first = False
                 self._notify(kind, chunk)
-                await self.send_audio(chunk)
+                await self._send(chunk)
 
     def _notify(self, kind: str, pcm: bytes) -> None:
         if self.on_audio is not None:

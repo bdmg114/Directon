@@ -27,3 +27,10 @@ def _legacy_order_digits(monkeypatch, request):
         from agent.turn import detector, rules
         monkeypatch.setattr(rules, "ORDER_DIGITS", 10)
         monkeypatch.setattr(detector, "ORDER_DIGITS", 10)
+
+
+@pytest.fixture(autouse=True)
+def _no_sentence_gap(monkeypatch, request):
+    """문장 사이 쉼은 송신 바이트를 바꾸므로 기존 테스트는 끈다. 쉼 테스트는 Settings(sentence_gap_ms=…)로 직접 켠다."""
+    from agent import responder
+    monkeypatch.setattr(responder, "DEFAULT_SENTENCE_GAP_MS", 0)
