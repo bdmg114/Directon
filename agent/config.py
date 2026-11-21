@@ -61,6 +61,10 @@ class Settings:
     post_tool_bridge: bool = True       # 함수 결과를 받은 즉시 캐시 문구를 먼저 말한다(TTS가 문장당 2~3초라 답 전 침묵을 줄인다)
     post_tool_ok: str = "네, 확인했어요."  # 결과가 ok일 때의 문구. 실패 결과는 agent.knowledge.FAIL_SENTENCES
     post_tool_more: str = "조금만 더 확인해 볼게요."   # 같은 턴의 두 번째 함수 회차 결과(ok) 뒤 문구(같은 말 반복 방지)
+    confirm_heard_number: bool = True   # AG-T56: 들은 번호를 못 쓰거나(검사에서 막힘) 그 번호로 주문이 없으면 LLM 대신 "제가 들은 번호는 …입니다. 맞으실까요?"로 되물어 턴을 끝낸다
+    answer_cache: bool = True           # AG-T56: 답 문장이 캐시에 있는 문구와 같으면 TTS 없이 캐시 음성을 바로 낸다
+    answer_phrases: tuple[str, ...] = ("주문번호나 주문하신 분 연락처를 말씀해 주시겠어요?", "어떤 도움이 필요하신가요?",
+                                       "확인해 드리겠습니다.", "맞으실까요?")   # 서버 시작 때 미리 합성할 자주 쓰는 답 문장
     ground_number_args: bool = True     # LLM 번호 인자를 고객 발화의 번호에 맞춘다(AG-T10a)
     validate_number_length: bool = True # 스키마 설명의 'N자리'와 다른 번호는 툴에 보내지 않는다(AG-T10a)
     ensure_transfer_call: bool = True   # 상담원 연결을 말했는데 transfer_to_agent가 없으면 부른다(AG-T10a)
@@ -98,7 +102,7 @@ class Settings:
     def cached_phrases(self) -> list[str]:
         """서버 시작 때 미리 합성해 둘 문구."""
         out: list[str] = []
-        for p in (*self.openers, *self.fillers, self.apology, self.reprompt,
+        for p in (*self.openers, *self.fillers, *self.answer_phrases, self.apology, self.reprompt,
                   self.opener_apology, self.opener_lookup, self.opener_lookup_filler, self.post_tool_ok,
                   self.post_tool_more):
             if p and p not in out:

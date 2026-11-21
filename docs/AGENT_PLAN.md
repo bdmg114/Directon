@@ -155,6 +155,7 @@ un_demo.ps1`, 가이드 `docs/03_사용자_테스트_가이드.md`) — 마이�
 | AG-T53 | 이식용 피드백 키트 `feedback_kit/`: 표준 라이브러리만 쓰는 서버(`python -m feedback_kit --agent-ws ...`)·페이지·README, 우리 코드 import 없음, 대회 프로토콜만 쓰는 상담원은 브라우저 말 구간 추적으로 턴을 나누고 `debug.*`가 오면 그것을 쓴다. 저장 모듈·녹음 모듈·워클릿은 키트가 원본, 데모는 키트 것을 쓴다 (2026-11-21 사용자 요청: "이거 다른 팀원 레포에도 붙일 수 있을까?" → "키트로 만들어줘" → "jin에서 키트 이어서 만들어줘") | AG-T52 | DONE | 2026-11-21 |
 | AG-T54 | 요청 종류 판정률 평가: `scripts/intent_eval.py`(text_eval.run_case로 한 턴 → 행동 분류 → 허용 행동과 비교, 종류별 정확도·혼동표), 연습 80문항 라벨 `data/eval/request_types.json`, 녹음 대본 200문항 `data/eval/haruon200/` | AG-T33 | DONE(측정 전) | 2026-11-21 |
 | AG-T55 | 소음 속 말 끝: 짧은 소리로 침묵 깨지 않기(`resume_min_ms` 100, 기본 켬), 받아쓰기 글 멈춤 상한(`text_stall_cap_ms` 3000, 기본 켬), 글 멈춤 + 결정기(`text_stall_end_ms`, 기본 끔), 손님 목소리 크기 기준(`speaker_gate_db`, 기본 끔) | AG-T33 | DONE(측정 전) | 2026-11-21 |
+| AG-T56 | 번호 되묻기·응답 지연(데모 피드백): 번호 없는 조회는 이번 말의 번호로 채움, 들은 번호를 되읽어 "맞으실까요?"로 확인(`confirm_heard_number`), 결과 문구 뒤 채움말 생략, 자주 쓰는 답 문장 캐시(`answer_cache`, `answer_phrases`) | AG-T33 | DONE(측정 전) | 2026-11-21 |
 | AG-T11 | 전체 회귀 + 결과 보고 | 위 전부 | TODO | |
 
 ## 7. Task 상세 (테스트 먼저)
@@ -311,6 +312,13 @@ un_demo.ps1`, 가이드 `docs/03_사용자_테스트_가이드.md`) — 마이�
 - 동작: (1) 침묵 뒤 음성이 `resume_min_ms`(100) 미만이면 침묵으로 세고 그동안 판정을 보류, (2) VAD 음성 중 받아쓰기 글이 `text_stall_cap_ms`(3000) 그대로면(글이 있을 때만) 끝맺음 요청 후 최대 300ms 뒤 확정, (3) `text_stall_end_ms`(기본 0)부터는 멈춘 시간을 침묵 200ms부터로 결정기에 넘김, (4) `speaker_gate_db`(기본 0, 제안 12): 확실한 음성(p ≥ 0.8) 에너지 75분위보다 그만큼 작은 음성 프레임은 침묵. 끼어들기 감지(`_watch_barge_in`)는 바꾸지 않았다.
 - 남은 일: 잡음 합성(white·babble, SNR 지정) 음성으로 오프라인 비교(말 끝 전 확정·놓침·지연 p50/p95·확정 6초 초과 비율) 뒤 (3)·(4) 기본값 결정.
 
+### AG-T56 번호 되묻기·응답 지연 (2026-11-21 사용자 요청)
+- 근거: "주문번호를 알려줬을 때 잘 인식했는데도 다시 묻는 것 같네. 멘트를 들은 숫자를 말해주고 그게 맞냐고 반문하게 수정해줘. 그리고 채움말 후로 나오는 응답이 좀 늦네."
+- 데모 기록(DEMO-20261121-165416-mm6k) 4턴: 받아쓰기 "010. 2215. 7723이요."는 맞았는데 LLM이 번호 없이 `get_order_info`를 불러 검사(`missing`)에 막혔고, LLM이 "번호가 잘 안 들렸어요…"라고 지어냈다. 5턴: 함수 결과 뒤 결과 문구 → 채움말 → LLM 2.8초 → TTS 첫 바이트 3.5초. 문장 TTS(BAZE `gemini-3.8-flash-tts`) 첫 바이트가 턴마다 3.0~3.5초.
+- 파일: `agent/guards.py`(`heard_number`, `heard_digits`, 조회 번호 채우기), `agent/responder.py`(`_confirm_sentence`, 캐시 답 문장, 채움말 취소), `agent/config.py`, `tests/test_number_confirm.py`(새, 9개).
+- 동작: (1) 조회 함수에 번호가 없고 이번 고객 말에 형식에 맞는 번호가 하나면 그 번호로 조회(발신자·이전 대화 번호 우선 규칙은 그대로). (2) 조회가 번호 문제(missing·unclear_number)로 막혔거나, 이번 말에서 들은 번호로 `get_order_info`가 not_found면 LLM 회차 없이 "제가 들은 번호는 공일공, ….입니다." + "맞으실까요?"로 끝낸다. 직전 상담원 말이 이미 번호 확인이었으면 하지 않는다. `get_return_info` not_found는 되읽지 않는다(연습 문항 정답이 접수 유형을 묻는다). (3) 결과 문구(`post_tool_bridge`)를 냈으면 채움말 타이머를 취소. (4) 답 문장이 캐시 문구와 같으면 TTS 없이 캐시 음성(서버 시작 때 `answer_phrases` 4개 예열).
+- 남은 일: 응답 지연의 대부분은 TTS 첫 바이트(3초대)다. 행사 지정 `gemini-3.8-flash-lite-tts`가 게이트웨이에서 되면(`GEMINI_TTS_MODEL`) 비교. 함수 결과 뒤 회차만 추론 수준을 낮추는 안은 응대 점수 영향 측정 뒤.
+
 ## 8. 수동 체크리스트
 
 | 항목 | 기대 | 결과 |
@@ -410,3 +418,4 @@ un_demo.ps1`, 가이드 `docs/03_사용자_테스트_가이드.md`) — 마이�
 - 2026-11-21 | AG-T53 | DONE | feedback_kit/ 새 키트(서버·페이지·README, 표준 라이브러리만), store·녹음 모듈·워클릿을 키트 원본으로 옮기고 데모는 키트 것을 씀, tests/test_feedback_kit.py 14개 + JS 2개. RED(모듈 없음) → GREEN, 키트·데모 테스트 55 passed. 헤드리스 크롬 스모크: debug 없이 PCM + turn.end(+ transcript 1회)만 보내는 가짜 상담원으로 브라우저 추정 턴 2개·녹음·클립·cases.jsonl 저장, 데모 회귀 스모크도 통과
 - 2026-11-21 | AG-T54 | DONE(측정 전) | scripts/intent_eval.py, data/eval/request_types.json(80), data/eval/haruon200(200), tests/test_intent_eval.py. 분류기는 실제 상담 답 79/80 일치. 이 작업 환경에서 OpenAI 접속이 막혀 LLM 측정은 못 함
 - 2026-11-21 | AG-T55 | DONE(측정 전) | agent/{config,session}.py, tests/test_noise_endpoint.py(8개). 이 작업 환경에 numpy·httpx가 없어 pytest를 돌리지 못함 — 반영 후 `uv run pytest -q` 필요
+- 2026-11-21 | AG-T56 | DONE(측정 전) | agent/{guards,responder,config}.py, tests/test_number_confirm.py(9개). 이 작업 환경에서 pytest 미실행
