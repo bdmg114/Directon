@@ -132,3 +132,21 @@ def test_rules_reflect_call_feedback_and_example_points():
                    "확인 질문은 최소로 한다", "아직 받지 않은 가장 최근 주문", "배송지를 바꿀 수 없다고 안내한 뒤 상담원 연결",
                    "주문번호를 먼저 묻고", "하이픈(-) 없이", "출고 전이라는 것"):
         assert phrase in K.RULES, phrase
+
+
+# ── 010을 빼고 말한 휴대폰 번호(데모 피드백) ──
+def test_phone_without_010_prefix_is_completed():
+    v = check("get_order_info", {"buyer_cellphone": "4777-5671"},
+              GuardContext(tools=[], user_text="전화번호 4777-5671로 주문했는데 제가 뭘 시켰죠?"))
+    assert v.blocked is None and v.args == {"buyer_cellphone": "01047775671"}
+
+
+def test_heard_number_completes_eight_digit_phone_only_with_phone_words():
+    assert heard_number(GuardContext(tools=[], user_text="전화번호 4777-5671이요")) == ("phones", "01047775671")
+    assert heard_number(GuardContext(tools=[], user_text="4777-5671이요")) is None
+
+
+def test_masked_phone_from_gateway_is_restored():
+    v = check("get_order_info", {"buyer_cellphone": "[PHONE]"},
+              GuardContext(tools=[], user_text="010-4777-5671이요."))
+    assert v.blocked is None and v.args == {"buyer_cellphone": "01047775671"}

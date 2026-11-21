@@ -339,6 +339,8 @@ def _id_digits(value: Any, phone: bool = False) -> str:
             d = "0" + d[2:]
         elif len(d) == 13 and d[2] == "0":
             d = d[2:]
+    if phone and len(d) == 8 and not d.startswith("0"):
+        d = "010" + d                               # "4777-5671"처럼 010을 빼고 말한 휴대폰 번호(데모 피드백)
     return d
 
 
@@ -517,6 +519,9 @@ def _trusted_phones(kn: _Known, caller_phone: str) -> list[str]:
     return ([caller_phone] if valid_phone(caller_phone) else []) + hist[::-1]
 
 
+_PHONE_WORDS = re.compile(r"전화|연락처|휴대폰|핸드폰|폰 ?번호")
+
+
 def heard_number(ctx: GuardContext) -> tuple[str, str] | None:
     """이번 고객 말(user_text)에서 들린 번호 하나: ("phones" | "orders", 숫자열). 형식에 맞는 번호가 정확히 하나일 때만.
     "010. 2215. 7723이요"처럼 마침표로 끊겨 받아써진 번호도 숫자만 이어 붙여 본다(AG-T56)."""
@@ -528,6 +533,8 @@ def heard_number(ctx: GuardContext) -> tuple[str, str] | None:
             [("orders", d) for d in dict.fromkeys(kn.heard["orders"]) if valid_order(d)]
     if not cands:
         for soup in dict.fromkeys((_digits(text), _spoken(text))):
+            if len(soup) == 8 and not soup.startswith("0") and _PHONE_WORDS.search(text):
+                soup = "010" + soup                 # "전화번호 4777-5671"처럼 010을 뺀 번호
             if valid_phone(soup):
                 cands = [("phones", soup)]
                 break
