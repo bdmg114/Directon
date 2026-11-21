@@ -602,7 +602,7 @@ class Responder:
         v = guards.check(tc.name, tc.arguments, self.guard)
         if v.blocked is not None:
             if tlog:
-                tlog.event("tool_blocked", tool=tc.name, reason=v.reason)
+                tlog.event("tool_blocked", tool=tc.name, reason=v.reason, args=tc.arguments)   # LLM이 보낸 인수(원인 확인용)
             self._block_reasons[tc.id] = v.reason
             return tc, v.blocked
         if tc.name in guards.ACTION_FUNCS:

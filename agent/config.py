@@ -22,6 +22,8 @@ class Settings:
     fillers: tuple[str, ...] = ("확인해 드릴게요, 잠시만요.",)
     apology: str = "죄송합니다, 잠시 확인이 어렵습니다. 잠시 후 다시 말씀해 주시겠어요?"
     reprompt: str = "죄송합니다, 잘 듣지 못했어요. 한 번만 더 말씀해 주시겠어요?"
+    # AG-U05 번호 없는 주문·배송 조회 요청에 첫 마디·LLM 없이 바로 내보내는 질문(캐시). 빈 문자열이면 끔
+    ask_number_text: str = "주문번호나 주문하신 분 연락처를 말씀해 주시겠어요?"
     opener_use_name: bool = False       # True면 "네, ○○ 고객님."(실시간 합성 필요)
     # 텍스트 기반 첫 마디(AG-T10c): 확정 시점 텍스트의 키워드로 고른다(tts_cache.select_opener_for_text).
     # 캐시에 없으면 기본 첫 마디를 쓴다. 조회 첫 마디를 쓴 턴의 툴 필러는 opener_lookup_filler로 바꾼다("확인해" 반복 방지).
@@ -83,6 +85,12 @@ class Settings:
     barge_in_gap_ms: int = 60           # 연속 음성 사이 이 이하 끊김은 이어진 것으로
     barge_in_arm_ms: int = 1000         # 첫 소리 뒤 이 시간 이후에 시작된 말만 끼어들기로 본다
     barge_in_preroll_ms: int = 200      # 끼어든 말 시작 전 이만큼을 새 턴 STT에 같이 넣는다
+    # 끼어들기 확인(AG-U05): 소리만으로 끊지 않고 끼어든 말을 받아써 본 뒤, 내용이 없으면(빈 글·맞장구·상담원 자기 목소리 에코)
+    # 원래 답을 계속한다. 확인하는 동안 원래 답은 그대로 나간다.
+    barge_in_verify: bool = False       # 기본 끔: 되물음("배송 완료라고요?")을 에코로 보고 무시하고, 진짜 끼어들기 반응이 늦어진다. DIRECTON_BARGE_IN_VERIFY=1로 켠다
+    barge_in_verify_max_ms: int = 1200  # 끼어든 말 시작 뒤 최대 이만큼 듣고 판정
+    barge_in_verify_quiet_ms: int = 300 # 끼어든 말이 이만큼 멈추면 바로 판정
+    barge_in_verify_empty_voiced_ms: int = 600  # 받아쓰기가 비어도 사람 소리가 이만큼 길면 끼어들기(인식 실패)
     pace_lead_ms: int = 1500            # 응답 오디오를 재생 시계보다 이 이상 앞서 보내지 않는다(0이면 끔)
     pace_cap_s: float = 10.0            # 확정 뒤 이 시간이 지나면 속도 조절 없이 보낸다(turn.end 25초 한도)
     opener_adaptive: bool = False       # AG-T20 첫 마디 정책. 측정 전까지 끔(사용자 결정, DIRECTON_OPENER_ADAPTIVE=1로 켬)
@@ -103,7 +111,7 @@ class Settings:
     def cached_phrases(self) -> list[str]:
         """서버 시작 때 미리 합성해 둘 문구."""
         out: list[str] = []
-        for p in (*self.openers, *self.fillers, *self.answer_phrases, self.apology, self.reprompt,
+        for p in (*self.openers, *self.fillers, *self.answer_phrases, self.apology, self.reprompt, self.ask_number_text,
                   self.opener_apology, self.opener_lookup, self.opener_lookup_filler, self.post_tool_ok,
                   self.post_tool_more):
             if p and p not in out:

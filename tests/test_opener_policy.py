@@ -15,6 +15,14 @@ def test_opener_kind_from_text():
     assert opener_kind("", S) == "simple"
 
 
+def test_lookup_without_identifier_is_simple():
+    # 번호가 아직 없으면 곧 번호를 되물을 턴이라 조회 첫 마디("확인해 드릴게요")를 쓰지 않는다
+    assert opener_kind("혹시 제 주문이 어디쯤 왔을까요?", S, has_identifier=False) == "simple"
+    assert opener_kind("혹시 제 주문이 어디쯤 왔을까요?", S, has_identifier=True) == "lookup"
+    assert opener_kind("주문번호 이육일일 일오공 이삼일이요", S, has_identifier=False) == "lookup"   # 이번 말에 번호가 있음
+    assert opener_kind("물건이 깨져서 왔어요", S, has_identifier=False) == "apology"
+
+
 def test_candidates_start_with_settings_phrase_and_have_variety():
     assert CANDS["apology"][0] == S.opener_apology
     assert CANDS["lookup"][0] == S.opener_lookup
@@ -106,3 +114,14 @@ def test_choose_filler_alternates_and_avoids_overlap_with_opener():
     assert choose_filler(("잠시만요.",), opener="", last="잠시만요.") == "잠시만요."
     assert choose_filler((), opener="", last=None) is None
     assert choose_filler(cands, opener="", last=None, is_cached=lambda t: False) is None
+
+
+def test_needs_number_only_for_order_requests_not_policy_questions():
+    from agent.tts_cache import needs_number_only
+    assert needs_number_only("주문한 게 어디쯤 왔는지 궁금해서요.")
+    assert needs_number_only("어제 주문한 거 취소하고 싶은데요.")
+    assert not needs_number_only("반품하려면 며칠 안에 해야 돼요?")          # 정책 질문
+    assert not needs_number_only("취소 가능한가요?")
+    assert not needs_number_only("주문번호 이공이육 일공일공 공공일구 팔칠오요. 어디쯤이에요?")   # 번호가 있다
+    assert not needs_number_only("배송이 안 와서 너무 화나요")              # 사과가 먼저
+    assert not needs_number_only("영업시간이 어떻게 돼요?")

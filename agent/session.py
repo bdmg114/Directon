@@ -67,8 +67,9 @@ from agent.guards import GuardContext, valid_phone
 from agent.knowledge import build_system, fix_brand
 from agent.responder import NormalizeArgs, Prefetch, Responder, SentenceSplitter
 from agent.tools_client import ToolsClient
-from agent.tts_cache import (OPENER_KINDS, TTSCache, choose_filler, choose_opener, opener_candidates,
-                             opener_kind, opener_phrases, select_opener, select_opener_for_text)
+from agent.tts_cache import (OPENER_KINDS, TTSCache, choose_filler, choose_opener, has_long_number,
+                             needs_number_only, opener_candidates, opener_kind, opener_phrases, select_opener,
+                             select_opener_for_text)
 from agent.turn_log import TurnLog, TurnLogWriter
 
 try:  # 실제 websockets 연결이 끊긴 경우
@@ -120,6 +121,10 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "barge_in_gap_ms": 60,          # 연속 음성 사이 이 이하 끊김은 이어진 것으로
     "barge_in_arm_ms": 1000,        # 첫 소리 뒤 이 시간 이후에 시작된 말만 끼어들기로 본다
     "barge_in_preroll_ms": 200,     # 끼어든 말 시작 전 이만큼을 새 턴 STT에 같이 넣는다
+    "barge_in_verify": False,       # AG-U05 끼어든 말을 받아써 내용이 없으면 원래 답을 계속(기본 끔)
+    "barge_in_verify_max_ms": 1200,
+    "barge_in_verify_quiet_ms": 300,
+    "barge_in_verify_empty_voiced_ms": 600,
     "pace_lead_ms": 1500,           # 응답 오디오를 재생 시계보다 이 이상 앞서 보내지 않는다(0이면 끔)
     "pace_cap_s": 10.0,             # 확정 뒤 이 시간이 지나면 속도 조절 없이 보낸다(turn.end 25초 한도)
     "opener_adaptive": False,       # AG-T20 첫 마디 정책
@@ -128,6 +133,7 @@ SESSION_DEFAULTS: dict[str, Any] = {
 _HARD_CAP_S = 23.0                  # 속도 조절로 안전 상한을 늘려도 확정 뒤 이 시간은 넘기지 않는다
 
 INTERRUPTED_NOTE = "(고객이 말을 끊어 여기까지만 말함)"
+VERIFY_TAIL_FRAMES = 25                # 끼어든 말 확인용 받아쓰기 뒤에 붙이는 무음(500ms)
 
 
 def _opt(settings: Settings, name: str) -> Any:
@@ -144,6 +150,31 @@ def _cut_words(text: str, frac: float) -> str:
         sp = head.rfind(" ")
         head = head[:sp] if sp >= 0 else ""
     return head.rstrip(" ,")
+
+
+# AG-U05 끼어든 말 확인: 이 말뿐이면 끼어들기가 아니다(맞장구·잡음)
+BACKCHANNELS = frozenset({"네", "예", "응", "음", "아", "어", "에", "네네", "예예", "음음", "어어", "아아", "아네", "네에",
+                          "그래요", "그렇구나", "알겠어요", "흠"})
+_NONWORD = re.compile(r"[^0-9A-Za-z가-힣]+")
+
+
+def barge_in_meaningful(text: str, agent_text: str) -> bool:
+    """끼어든 말이 내용이 있는가. 빈 글·한 글자·맞장구뿐이거나, 상담원이 이번 턴에 한 말의 일부(스피커 에코)면 False."""
+    t = _NONWORD.sub("", text or "")
+    if len(t) <= 1:
+        return False
+    words = [w for w in _NONWORD.sub(" ", text or "").split() if w]
+    if all(w in BACKCHANNELS for w in words):
+        return False
+    a = _NONWORD.sub("", agent_text or "")
+    if a and t in a:                                # 상담원 말이 마이크로 되들어온 것
+        return False
+    if a and words:
+        stems = {w[:2] for w in _NONWORD.sub(" ", agent_text or "").split() if len(w) >= 2}
+        long_words = [w for w in words if len(w) >= 2]
+        if long_words and sum(w[:2] in stems for w in long_words) / len(long_words) >= 0.7:
+            return False                            # 받아쓰기가 조금 달라도 대부분 상담원 말이면 에코
+    return True
 
 
 def heard_text(spoken: list[str], segs: dict[int, tuple[float, float]], stop_ms: float) -> str:
@@ -400,6 +431,10 @@ class Session:
         self._bi_ignored = False
         self._bi_frames: list[bytes] = []
         self._bi_info: dict | None = None
+        self._bi_verify_task: asyncio.Task | None = None   # AG-U05 끼어든 말 확인 중
+        self._bi_verify_start: int | None = None
+        self._bi_last_voiced_ms = 0.0
+        self._bi_verify_voiced = 0                      # 확인 구간의 사람 소리 길이(ms)
         self._late_barge_done = False
         self._speech_onset_ms = 0.0
         self._turn_user_text = ""
@@ -630,7 +665,7 @@ class Session:
     async def _cleanup(self) -> None:
         self._cancel_prepared()
         for t in (self._response_task, self._work_task, self._tools_task, self._warm_task, self._handoff_task,
-                  self._preload_task):
+                  self._preload_task, self._bi_verify_task):
             if t is not None and not t.done():
                 t.cancel()
         for t in (self._response_task, self._work_task):    # 취소가 끝날 때까지 기다린 뒤 턴 상태 정리
@@ -804,9 +839,26 @@ class Session:
     def _cached(self, text: str) -> bool:
         return bool(text) and self.d.cache.get(text) is not None
 
+    def _has_identifier(self) -> bool:
+        """조회에 쓸 번호가 이미 있는지: 발신자 전화번호, 또는 이전 대화·이번 통화 말 속 번호(4자리 이상)."""
+        if self.info is not None and ((self.info.caller or {}).get("phone") or "").strip():
+            return True
+        return any(has_long_number(str(h.get("text") or h.get("content") or "")) or h.get("role") == "tool_result"
+                   for h in self._context_history() if isinstance(h, dict))
+
+    def _ask_number_reply(self, text: str) -> str:
+        """AG-U05 조회할 번호가 하나도 없는 주문·배송 요청이면 정해진 질문(캐시된 문장), 아니면 ""."""
+        q = self.s.ask_number_text
+        if not q or self._has_identifier() or not needs_number_only(text) or self.d.cache.get(q) is None:
+            return ""
+        return q
+
+    def _opener_kind(self, text: str) -> str:
+        return opener_kind(text, self.s, has_identifier=self._has_identifier())
+
     def _plan_opener(self, text: str) -> str:
         """선호출 프롬프트에 넣을 첫 마디(답이 준비 안 됐을 때 쓸 것). 없으면 ""."""
-        c = choose_opener(opener_kind(text, self.s), answer_ready=False, recent=self._recent_openers,
+        c = choose_opener(self._opener_kind(text), answer_ready=False, recent=self._recent_openers,
                           candidates=self._opener_candidates(), is_cached=self._cached)
         return c.text or ""
 
@@ -866,19 +918,86 @@ class Session:
                 self._bi_ignored = fa is None or self._bi_onset_ms - fa < _opt(self.s, "barge_in_arm_ms")
             self._bi_voiced += FRAME_MS
             self._bi_gap = 0
+            self._bi_last_voiced_ms = self._now_ms()
+            if self._bi_verify_task is not None:
+                self._bi_verify_voiced += FRAME_MS
             if not self._bi_ignored and self._bi_voiced >= _opt(self.s, "barge_in_ms"):
-                await self._trigger_barge_in()
+                if _opt(self.s, "barge_in_verify"):
+                    if self._bi_verify_task is None:        # 소리만으로 끊지 않고 내용을 확인한다
+                        self._bi_verify_start = self._bi_run_start
+                        self._bi_verify_voiced = self._bi_voiced
+                        self._bi_verify_task = asyncio.create_task(self._verify_barge_in())
+                else:
+                    await self._trigger_barge_in()
         elif self._bi_run_start is not None:
             self._bi_gap += FRAME_MS
             if self._bi_gap > _opt(self.s, "barge_in_gap_ms"):
                 self._bi_run_start = None
 
-    async def _trigger_barge_in(self) -> None:
+    async def _verify_barge_in(self) -> None:
+        """AG-U05 끼어든 말 확인: 말이 멈추거나 최대 시간이 될 때까지 들은 뒤 그 구간을 새 STT 연결로 받아쓴다.
+        내용이 있으면 끼어들기로 확정하고, 없으면(빈 글·맞장구·상담원 자기 목소리 에코) 원래 답을 그대로 이어 간다."""
+        start = self._bi_verify_start
+        t0 = self._now_ms()
+        try:
+            while self.responding and not self._barged and self._now_ms() - t0 < _opt(self.s, "barge_in_verify_max_ms"):
+                if self._now_ms() - self._bi_last_voiced_ms >= _opt(self.s, "barge_in_verify_quiet_ms"):
+                    break
+                self._frame_ev.clear()                  # 프레임이 들어올 때마다 다시 본다(프레임이 끊기면 50ms마다)
+                try:
+                    await asyncio.wait_for(self._frame_ev.wait(), 0.05)
+                except asyncio.TimeoutError:
+                    pass
+            if not self.responding or self._barged or start is None:
+                return
+            pre = int(_opt(self.s, "barge_in_preroll_ms")) // FRAME_MS
+            n = self.frame_idx - start + 1 + pre
+            text = await self._transcribe_pcm(b"".join(list(self._bi_buf)[-n:]))
+            if not self.responding or self._barged:
+                return
+            ok = barge_in_meaningful(text, " ".join(self._turn_spoken))
+            if not ok and not (text or "").strip() and                     self._bi_verify_voiced >= _opt(self.s, "barge_in_verify_empty_voiced_ms"):
+                ok = True                               # 받아쓰기는 비었지만 사람 소리가 길다 → 인식 실패로 보고 끼어들기
+            self.tlog.event("barge_in_verify", meaningful=ok, chars=len(text or ""), voiced_ms=self._bi_verify_voiced)
+            if ok:
+                await self._trigger_barge_in(start=start)
+            else:
+                self._bi_ignored = True                 # 이번 소리 덩어리는 끼어들기로 보지 않는다
+                self.tlog.set("barge_in_ignored", (self.tlog.fields.get("barge_in_ignored") or 0) + 1)
+        finally:
+            if not self._barged:
+                self._bi_verify_task = None
+
+    async def _transcribe_pcm(self, pcm: bytes) -> str:
+        """짧은 음성을 새 STT 연결로 받아쓴다. 실패하면 "".
+        (끼어들기 확인용. 응답 중 프레임은 턴 STT에 넣지 않으므로 따로 연다)"""
+        try:
+            stream = await asyncio.wait_for(self.d.stt.open_stream(self.s.stt_context), 2.0)
+        except Exception as e:  # noqa: BLE001
+            log.warning("barge-in stt open failed: %r", e)
+            return ""
+        try:
+            for i in range(0, len(pcm), FRAME_BYTES):
+                await stream.send_audio(pcm[i:i + FRAME_BYTES])
+            for _ in range(VERIFY_TAIL_FRAMES):         # 뒤에 무음을 붙여야 짧은 말도 받아쓰기가 확정된다(데모 0글자 사례)
+                await stream.send_audio(bytes(FRAME_BYTES))
+            return ((await stream.finalize(1.0)) or "").strip()
+        except Exception as e:  # noqa: BLE001
+            log.warning("barge-in stt failed: %r", e)
+            return ""
+        finally:
+            try:
+                await stream.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _trigger_barge_in(self, start: int | None = None) -> None:
         self._barged = True
         now = self._now_ms()
-        assert self._bi_run_start is not None
+        start = self._bi_run_start if start is None else start
+        assert start is not None
         pre = int(_opt(self.s, "barge_in_preroll_ms")) // FRAME_MS
-        n = self.frame_idx - self._bi_run_start + 1 + pre
+        n = self.frame_idx - start + 1 + pre
         self._bi_frames = list(self._bi_buf)[-n:]
         # 데모(디버그)는 신호를 받으면 재생을 멈춘다 → 끼어든 시점까지. 그 밖의 클라이언트는 이미 보낸 만큼 재생된다.
         stop_ms = now if self.debug else self._play_end_ms
@@ -914,6 +1033,14 @@ class Session:
         self.tlog.event("late_barge_in", heard=heard)
         await self._debug({"type": "debug.barge_in", "late": True, "voiced_ms": self.speech_ms,
                            "heard_ms": round(self._speech_onset_ms - prev["first"])})
+
+    def _tail_backchannel(self) -> bool:
+        """AG-T59: 직전 답이 아직 재생 중일 때 시작된 barge_in_ms 미만의 소리(맞장구·스피커 되울림).
+        응답 중 300ms 미만 맞장구를 무시하는 것과 같은 기준을 turn.end 뒤 재생 구간에도 쓴다.
+        측정기는 문항 하나가 연결 하나라 직전 턴이 없어 해당하지 않는다."""
+        prev = self._prev_play
+        return (self.barge_in and prev is not None and self._speech_onset_ms < prev["end"]
+                and self.speech_ms < _opt(self.s, "barge_in_ms"))
 
     async def _process_frame(self, frame: bytes) -> None:
         stt = await self._ensure_stt()
@@ -971,6 +1098,14 @@ class Session:
                 self.speech_ms = 0                      # 짧은 잡음은 잊는다
                 self.silence_ms = 0
             elif self.speech_ms:
+                self.silence_ms += ms
+            return
+        if self._tail_backchannel():
+            if self.silence_ms + ms >= self.s.precall_silence_ms:
+                self.tlog.event("tail_backchannel_ignored", speech_ms=self.speech_ms)
+                self.speech_ms = 0
+                self.silence_ms = 0
+            else:
                 self.silence_ms += ms
             return
         if self.silence_ms == 0:
@@ -1287,7 +1422,7 @@ class Session:
 
     async def _adaptive_opener(self, spoken: list[str]) -> None:
         pc = self._precall
-        kind = opener_kind(self._commit_text or (pc.text if pc is not None else ""), self.s)
+        kind = self._opener_kind(self._commit_text or (pc.text if pc is not None else ""))
         ready, tool = await self._answer_state(pc)
         if ready and route(self._known_handoff(), self.info.now if self.info else "") is not None:
             ready = False                               # 인계 턴: 힌트 없는 선합성 답은 버려지므로 첫 마디를 쓴다
@@ -1434,6 +1569,22 @@ class Session:
             async with asyncio.timeout(self.s.safety_timeout_s) as cm:
                 self._safety = cm
                 self._safety_cap = loop.time() + max(self.s.safety_timeout_s, _HARD_CAP_S)
+                # 첫 마디를 아직 안 냈을 때만(adaptive는 첫 마디를 여기서 고르므로 opener_sent=True여도 아직 안 냈다)
+                ask = self._ask_number_reply(self._commit_text) if (self.opener_adaptive or not opener_sent) else ""
+                if ask:
+                    # AG-U05 번호가 없으면 답이 정해져 있다: 첫 마디·LLM 없이 질문을 바로 내보낸다(첫 마디 뒤 4~6초 침묵 없앰)
+                    user_text = await self._final_text()
+                    st["user_text"] = user_text
+                    self.tlog.set("user_text", user_text)
+                    await self._debug({"type": "debug.stt", "text": user_text})
+                    if user_text and self._ask_number_reply(user_text) == ask:
+                        if self._precall is not None:
+                            self._precall.cancel()
+                        self.tlog.set("ask_number_fast", True)
+                        self.turn_opener = ""
+                        self.tlog.mark("response_first_audio")
+                        await self._play_cached(ask, spoken, pace=True)
+                        return
                 if self.opener_adaptive:
                     await self._adaptive_opener(spoken)
                 elif not opener_sent:                   # 캐시에 없으면 실시간 합성
@@ -1537,7 +1688,13 @@ class Session:
             return
         old = self.stt
         self.stt = None
-        if self._barged:                                # 고객이 지금 말하는 중: 바로 연다
+        verifying = self._bi_verify_task is not None and not self._bi_verify_task.done()
+        if verifying:                                   # AG-U05 확인 중에 답이 끝났다 → 그 말은 다음 턴의 시작이다
+            self._bi_verify_task.cancel()
+            pre = int(_opt(self.s, "barge_in_preroll_ms")) // FRAME_MS
+            n = self.frame_idx - (self._bi_verify_start or self.frame_idx) + 1 + pre
+            self._bi_frames = list(self._bi_buf)[-n:]
+        if self._barged or verifying:                   # 고객이 지금 말하는 중: 바로 연다
             self._stt_open = asyncio.create_task(self.d.stt.open_stream(self.s.stt_context))
         else:
             self._stt_open = None
@@ -1555,7 +1712,7 @@ class Session:
             self._handoff_task.cancel()
         self._handoff_task, self._handoff_key = None, ""
         self._dbg_tool_args = {}
-        replay = self._bi_frames if self._barged else None   # 끼어든 말(AG-T19): 다음 프레임 때 새 턴으로 처리
+        replay = self._bi_frames if (self._barged or verifying) else None   # 끼어든 말(AG-T19): 다음 프레임 때 새 턴으로 처리
         self._reset_turn()
         self._replay = replay or None
         self.responding = False

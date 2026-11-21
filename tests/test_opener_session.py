@@ -74,7 +74,9 @@ async def test_answer_ready_sends_presynth_first_sentence_without_opener(tmp_pat
 
 
 async def test_not_ready_uses_opener_and_never_repeats_across_turns(tmp_path):
-    ws = FakeWS(start_msg(opener_adaptive=True), utterance(30), utterance(30), utterance(30), turns=3)
+    # 발신자 번호가 있어야 조회 첫 마디를 쓴다(번호가 없으면 곧 번호를 되묻는 턴이라 중립 첫 마디)
+    caller = {"name": "홍길동", "phone": "01012345678"}
+    ws = FakeWS(start_msg(opener_adaptive=True, caller=caller), utterance(30), utterance(30), utterance(30), turns=3)
     llm = DelayLLM(ws, text_events("조회해 보니 배송 중입니다."), delays=[25, 25, 25])
     stt = FakeSTT(texts=[("주문 조회해 주세요", "주문 조회해 주세요"),
                          ("다른 주문도 조회해 주세요", "다른 주문도 조회해 주세요"),
@@ -154,3 +156,34 @@ async def test_missing_opener_phrases_are_warmed_in_background(tmp_path):
     for k in OPENER_KINDS:
         for p in opener_candidates(k, deps.settings):
             assert deps.cache.get(p) is not None, p
+
+
+async def test_ask_number_fast_path_skips_opener_and_llm(tmp_path):
+    """AG-U05 번호가 하나도 없는 주문 조회 요청: 첫 마디·LLM 없이 캐시된 질문을 바로 낸다."""
+    ws = FakeWS(start_msg(opener_adaptive=True), utterance(30))
+    llm = FakeLLM(text_events("LLM이 만든 답"), ws=ws)
+    stt = FakeSTT(partial="주문한 게 어디쯤 왔는지 궁금해서요", final="주문한 게 어디쯤 왔는지 궁금해서요")
+    deps, _ = make_deps(tmp_path, ws=ws, llm=llm, stt=stt, detector=FakeDetector(None), log_writer=writer(tmp_path))
+    cache_all_openers(deps)
+    ask_pcm = phrase_pcm(99)
+    deps.cache.put(deps.settings.ask_number_text, ask_pcm)
+    await run(ws, deps)
+    first = ws.binaries()[0][1]
+    assert first == ask_pcm                                        # 첫 소리가 곧 질문
+    texts = [t for t in ws.texts() if t["type"] == "agent.transcript"]
+    assert texts[0]["text"] == deps.settings.ask_number_text
+    rec = read_log(tmp_path)[0]
+    assert rec.get("ask_number_fast") is True
+
+
+async def test_ask_number_fast_path_not_used_with_caller_phone(tmp_path):
+    caller = {"name": "홍길동", "phone": "01012345678"}
+    ws = FakeWS(start_msg(opener_adaptive=True, caller=caller), utterance(30))
+    llm = FakeLLM(text_events("조회해 볼게요."), ws=ws)
+    stt = FakeSTT(partial="주문한 게 어디쯤 왔는지 궁금해서요", final="주문한 게 어디쯤 왔는지 궁금해서요")
+    deps, _ = make_deps(tmp_path, ws=ws, llm=llm, stt=stt, detector=FakeDetector(None), log_writer=writer(tmp_path))
+    cache_all_openers(deps)
+    deps.cache.put(deps.settings.ask_number_text, phrase_pcm(99))
+    await run(ws, deps)
+    assert llm.calls                                               # 발신자 번호로 조회할 수 있으니 LLM 경로
+    assert not read_log(tmp_path)[0].get("ask_number_fast")

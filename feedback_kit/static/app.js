@@ -383,6 +383,8 @@
         break;
       }
       case "turn.end": {
+        // AG-T61: 끼어든 턴은 여기서 끝났다. 이 뒤의 오디오는 다음 턴 것이라 버리지 않는다(다음 턴 첫마디는 decided보다 먼저 온다).
+        c.dropAudio = false;
         const t = currentTurn();
         t.ended = true;
         t.ts.turn_end_ms = micMs(c);

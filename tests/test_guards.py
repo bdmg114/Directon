@@ -788,3 +788,9 @@ def test_masked_phone_in_callback_uses_heard_number():
     c = ctx(user_text="김하나이고 010-1234-5678로 전화 주세요", history=[{"role": "customer", "text": "전화 주문 하고 싶어요"}])
     v = check("request_callback", {"customer_name": "김하나", "phone_number": "[PHONE]"}, c)
     assert v.blocked is None and v.args["phone_number"] == "01012345678"
+
+
+# ── AG-U05 번호 없음으로 막을 때 "조회가 안 된다"고 말하지 않게 ──
+def test_missing_lookup_message_says_no_lookup_was_made():
+    v = check("get_order_info", {}, GuardContext(tools=TOOLS, user_text="배송 어디쯤이에요?"))
+    assert v.reason == "missing" and "조회 자체를 하지 않았습니다" in v.blocked["message"]

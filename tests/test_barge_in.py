@@ -139,8 +139,10 @@ class BargeWS:
         return [t for t in self.texts() if not t["type"].startswith("debug.")]
 
 
-def _deps(tmp_path, ws, llm, stt, tts=None, detector=None):
+def _deps(tmp_path, ws, llm, stt, tts=None, detector=None, verify=False):
+    # 기존 테스트는 소리만으로 바로 끊는 경로(barge_in_verify=False)를 본다. 확인 경로는 아래 AG-U05 테스트.
     deps, det = make_deps(tmp_path, ws=ws, llm=llm, stt=stt, tts=tts or LongTTS(),
+                          settings_kw={"barge_in_verify": verify},
                           detector=detector or FakeDetector(ws))
     return deps, det
 
@@ -293,9 +295,94 @@ async def test_late_barge_in_after_turn_end_marks_context(tmp_path):
     assert S2 not in last[-2].content
 
 
+async def test_short_sound_while_previous_answer_still_plays_is_not_a_new_turn(tmp_path):
+    """AG-T59: 직전 답이 아직 재생 중일 때 들어온 300ms 미만 소리(맞장구·스피커 되울림)는 새 턴이 아니다."""
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 10, after=5, anchor="turn_end",
+                 turns=1, after_end_frames=150)
+    llm = ScriptLLM(text_events(S1 + " ", S2), text_events("네, 감사합니다."))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), ("네", "네")])
+    deps, _ = _deps(tmp_path, ws, llm, stt)
+    await run(ws, deps)
+    assert ws.inject_pos == 10                                  # 소리는 실제로 들어갔다
+    assert ws.turn_ends == 1 and len(llm.calls) == 1
+
+
+async def test_short_answer_after_previous_answer_finished_is_still_a_turn(tmp_path):
+    """AG-T59: 재생이 끝난 뒤의 짧은 "네"는 지금처럼 답한다(씹지 않는다)."""
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 10, after=300, anchor="turn_end", turns=2)
+    llm = ScriptLLM(text_events(S1 + " ", S2), text_events("네, 감사합니다."))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), ("네", "네")])
+    deps, _ = _deps(tmp_path, ws, llm, stt)
+    await run(ws, deps)
+    assert ws.turn_ends == 2 and len(llm.calls) == 2
+    assert llm.calls[-1]["messages"][-1].content == "네"
+
+
 def test_demo_client_requests_barge_in_and_stops_playback():
     from pathlib import Path
     js = (Path(__file__).resolve().parents[1] / "demo" / "static" / "app.js").read_text(encoding="utf-8")
     assert "barge_in: true" in js and "opener_adaptive:" in js       # session.start에서 켠다
     assert 'case "debug.barge_in"' in js and "stopPlayback(c)" in js  # 신호를 받으면 재생 중단
     assert "src.stop" in js or "s.stop()" in js
+
+# ── AG-U05 끼어든 말 확인: 내용이 없으면 원래 답을 계속 ─────────────
+def test_barge_in_meaningful_rules():
+    from agent.session import barge_in_meaningful
+    agent = "네, 고객님. 첫 문장입니다. 둘째 문장은 조금 깁니다."
+    assert not barge_in_meaningful("", agent)                     # 받아쓰기 없음(잡음·기침)
+    assert not barge_in_meaningful("음.", agent)                  # 한 글자
+    assert not barge_in_meaningful("네 네.", agent)               # 맞장구
+    assert not barge_in_meaningful("첫 문장입니다.", agent)       # 스피커로 되들어온 상담원 말(에코)
+    assert not barge_in_meaningful("둘째 문장은 조금", agent)     # 에코 일부
+    assert barge_in_meaningful("아니요, 교환이요.", agent)
+    assert barge_in_meaningful("그거 취소도 돼요?", agent)
+
+
+async def test_verify_ignores_echo_and_finishes_original_answer(tmp_path):
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 25, after=60, turns=1)
+    llm = ScriptLLM(text_events(S1 + " ", S2))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), (S1, S1)])   # 둘째 연결 = 끼어든 말 확인(에코)
+    deps, _ = _deps(tmp_path, ws, llm, stt, verify=True)
+    await run(ws, deps)
+    proto = ws.proto()
+    assert [t["type"] for t in proto] == ["agent.transcript", "turn.end"]
+    assert proto[0]["text"].endswith(S2)                          # 끊지 않고 끝까지 말했다
+    assert 0 not in llm.cancelled
+    assert len(stt.streams) == 2                                  # 확인용 STT 연결을 한 번 열었다
+
+
+async def test_verify_confirms_real_interruption(tmp_path):
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 25, after=60)
+    llm = ScriptLLM(text_events(S1 + " ", S2, hang=True), text_events("네, 교환으로 안내해 드릴게요."))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), ("아니요, 교환이요", "아니요, 교환이요"),
+                         ("아니요, 교환이요", "아니요, 교환이요")])
+    deps, _ = _deps(tmp_path, ws, llm, stt, verify=True)
+    await run(ws, deps)
+    proto = ws.proto()
+    assert [t["type"] for t in proto] == ["agent.transcript", "turn.end", "agent.transcript", "turn.end"]
+    assert S2 not in proto[0]["text"]                             # 확인 뒤 끊었다
+    assert 0 in llm.cancelled
+    assert llm.calls[-1]["messages"][-1].content == "아니요, 교환이요"
+    assert proto[2]["text"].endswith("네, 교환으로 안내해 드릴게요.")
+
+
+async def test_verify_empty_text_but_long_speech_counts_as_interruption(tmp_path):
+    """받아쓰기가 비어도 사람 소리가 0.6초 넘게 이어졌으면 인식 실패로 보고 끼어들기(데모 0글자 사례)."""
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 40, after=60)
+    llm = ScriptLLM(text_events(S1 + " ", S2, hang=True), text_events("네, 말씀하세요."))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), ("", ""), ("다시 말할게요", "다시 말할게요")])
+    deps, _ = _deps(tmp_path, ws, llm, stt, verify=True)
+    await run(ws, deps)
+    assert 0 in llm.cancelled
+    assert [t["type"] for t in ws.proto()][:2] == ["agent.transcript", "turn.end"]
+    assert S2 not in ws.proto()[0]["text"]
+
+
+async def test_verify_empty_text_and_short_sound_is_ignored(tmp_path):
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 20, after=60, turns=1)   # 400ms
+    llm = ScriptLLM(text_events(S1 + " ", S2))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), ("", "")])
+    deps, _ = _deps(tmp_path, ws, llm, stt, verify=True)
+    await run(ws, deps)
+    proto = ws.proto()
+    assert [t["type"] for t in proto] == ["agent.transcript", "turn.end"] and proto[0]["text"].endswith(S2)

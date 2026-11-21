@@ -894,9 +894,11 @@ def _check(name: str, args: Any, ctx: GuardContext) -> Verdict:
     missing = _missing(name, out, params)
     if missing:
         what = ", ".join(missing)
+        no_result = (" 번호 없이 호출된 것이라 조회 자체를 하지 않았습니다. '그 번호로는 조회가 안 된다', '내역이 없다'고 말하지 "
+                     "마세요." if name in LOOKUP_FUNCS else "")
         return _block(out, "missing",
-                      f"{name} 호출에 필요한 {what} 값이 없습니다. 고객이 이미 말한 값이 있으면 그 값으로 다시 호출하고, "
-                      f"없으면 고객에게 {what}만 여쭤보세요. 값을 지어내지 마세요. " + _NOT_DONE)
+                      f"{name} 호출에 필요한 {what} 값이 없습니다.{no_result} 고객이 이미 말한 값이 있으면 그 값으로 다시 "
+                      f"호출하고, 없으면 고객에게 {what}만 여쭤보세요. 값을 지어내지 마세요. " + _NOT_DONE)
 
     if name in ACTION_FUNCS:
         # 4-1. 통화 첫 마디에서는 접수하지 않는다(연습 문항 80개에서 첫 턴 접수가 정답인 경우는 없다)
