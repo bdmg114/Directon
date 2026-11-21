@@ -144,3 +144,13 @@ def test_session_start_sends_debug_true_by_default_and_extra_overrides():
     assert "debug: true," in block
     assert block.rstrip().endswith("}, extra);")          # extra가 마지막 인수 → {"debug": false}로 끌 수 있다
     assert '{"debug": false}' in (KIT / "README.md").read_text(encoding="utf-8")
+
+
+def test_turn_end_stops_dropping_audio_so_next_opener_plays():
+    """AG-T61: 끼어든 뒤 버리기(dropAudio)는 그 턴의 turn.end에서 끝난다. 서버는 다음 턴 첫마디를
+    debug.turn decided보다 먼저 보내므로, decided에서만 풀면 끼어든 다음 턴의 첫마디가 버려진다."""
+    for path in [KIT / "static" / "app.js", KIT.parent / "demo" / "static" / "app.js"]:
+        js = path.read_text(encoding="utf-8")
+        block = js.split('case "turn.end": {', 1)[1].split("break;", 1)[0]
+        assert "c.dropAudio = false;" in block, path
+
