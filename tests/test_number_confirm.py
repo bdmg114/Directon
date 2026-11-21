@@ -25,7 +25,9 @@ def test_lookup_without_number_uses_heard_phone():
     assert v.args == {"buyer_cellphone": "01022157723"}
 
 
-async def test_not_found_on_heard_number_reads_it_back_and_ends_turn():
+async def test_not_found_on_heard_number_reads_it_back_and_ends_turn(monkeypatch):
+    # 조회 실패 되읽기(AG-T57, 기본 켬)가 켜져 있으면 그쪽이 맡는다(test_responder). 꺼져 있을 때 서버가 정해진 문장으로 되읽는다.
+    monkeypatch.setenv("DIRECTON_NOTFOUND_READBACK", "0")
     guard = GuardContext(tools=[], user_text="공일공 이이일오 칠칠이삼이요")
     llm = FakeLLM(tool_events("get_order_info", {"buyer_cellphone": "01022157723"}), text_events("다른 말입니다."))
 
@@ -136,17 +138,17 @@ def test_rules_reflect_call_feedback_and_example_points():
 
 # ── 010을 빼고 말한 휴대폰 번호(데모 피드백) ──
 def test_phone_without_010_prefix_is_completed():
-    v = check("get_order_info", {"buyer_cellphone": "4777-5671"},
-              GuardContext(tools=[], user_text="전화번호 4777-5671로 주문했는데 제가 뭘 시켰죠?"))
-    assert v.blocked is None and v.args == {"buyer_cellphone": "01047775671"}
+    v = check("get_order_info", {"buyer_cellphone": "1234-5678"},
+              GuardContext(tools=[], user_text="전화번호 1234-5678로 주문했는데 제가 뭘 시켰죠?"))
+    assert v.blocked is None and v.args == {"buyer_cellphone": "01012345678"}
 
 
 def test_heard_number_completes_eight_digit_phone_only_with_phone_words():
-    assert heard_number(GuardContext(tools=[], user_text="전화번호 4777-5671이요")) == ("phones", "01047775671")
-    assert heard_number(GuardContext(tools=[], user_text="4777-5671이요")) is None
+    assert heard_number(GuardContext(tools=[], user_text="전화번호 1234-5678이요")) == ("phones", "01012345678")
+    assert heard_number(GuardContext(tools=[], user_text="1234-5678이요")) is None
 
 
 def test_masked_phone_from_gateway_is_restored():
     v = check("get_order_info", {"buyer_cellphone": "[PHONE]"},
-              GuardContext(tools=[], user_text="010-4777-5671이요."))
-    assert v.blocked is None and v.args == {"buyer_cellphone": "01047775671"}
+              GuardContext(tools=[], user_text="010-1234-5678이요."))
+    assert v.blocked is None and v.args == {"buyer_cellphone": "01012345678"}

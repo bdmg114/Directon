@@ -340,7 +340,7 @@ def _id_digits(value: Any, phone: bool = False) -> str:
         elif len(d) == 13 and d[2] == "0":
             d = d[2:]
     if phone and len(d) == 8 and not d.startswith("0"):
-        d = "010" + d                               # "4777-5671"처럼 010을 빼고 말한 휴대폰 번호(데모 피드백)
+        d = "010" + d                               # "1234-5678"처럼 010을 빼고 말한 휴대폰 번호(데모 피드백)
     return d
 
 
@@ -534,7 +534,7 @@ def heard_number(ctx: GuardContext) -> tuple[str, str] | None:
     if not cands:
         for soup in dict.fromkeys((_digits(text), _spoken(text))):
             if len(soup) == 8 and not soup.startswith("0") and _PHONE_WORDS.search(text):
-                soup = "010" + soup                 # "전화번호 4777-5671"처럼 010을 뺀 번호
+                soup = "010" + soup                 # "전화번호 1234-5678"처럼 010을 뺀 번호
             if valid_phone(soup):
                 cands = [("phones", soup)]
                 break

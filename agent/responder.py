@@ -458,7 +458,9 @@ def tts_text(text: str) -> str:
     return _DIGIT_HYPHEN.sub(", ", text or "")
 
 
-_MASK_TEXT = re.compile(r"\[\s*PHONE\s*\]", re.I)
+# LLM이 가려진 번호 앞에 앞자리를 덧붙여 쓰면("010, [PHONE]") 바꾼 뒤 010이 두 번 읽힌다(데모 DEMO-20261121-180355) →
+# 표식 바로 앞의 010·공일공은 표식과 함께 바꾼다
+_MASK_TEXT = re.compile(r"(?:(?:010|공일공|공 일 공)\s*[,.\-]?\s*)?\[\s*PHONE\s*\]", re.I)
 _MASK_TEXT_BEON = re.compile(r"\[\s*PHONE\s*\](?:\s*번)?", re.I)
 
 
@@ -728,7 +730,8 @@ class Responder:
     def _confirm_sentence(self, calls: list[ToolCall], results: list[Any], ran: list[ToolCall]) -> str:
         """AG-T56: 이번 고객 말에서 들은 번호를 되읽어 확인할 문장. 해당 없으면 "".
         - 조회가 번호 문제로 막혔고(missing, unclear_number) 고객 말에 숫자가 7자리 이상 있을 때
-        - get_order_info를 이번에 들은 번호로 조회했는데 not_found일 때(발신자·이전 대화 번호면 되묻지 않는다)
+        - get_order_info를 이번에 들은 번호로 조회했는데 not_found일 때(발신자·이전 대화 번호면 되묻지 않는다).
+          단, 조회 실패 되읽기(AG-T57, DIRECTON_NOTFOUND_READBACK 기본 켬)가 맡는 경우는 넘긴다. 그쪽은 내역이 없다는 것까지 말한다.
         직전 상담원 말이 이미 번호 확인 질문이었으면 되풀이하지 않는다(그 뒤는 LLM 규칙대로 다른 번호를 요청)."""
         if self.guard is None or not getattr(self.settings, "confirm_heard_number", False):
             return ""
@@ -750,6 +753,8 @@ class Responder:
             if st == "blocked" and self._block_reasons.get(tc.id) in ("missing", "unclear_number"):
                 d = guards.heard_digits(user_text)
             elif st == "not_found" and tc.name == "get_order_info" and tc.id in ran_by_id:
+                if _readback_on() and self._heard.get(tc.id):
+                    continue                        # main AG-T57이 맡는다: LLM이 "…번으로 조회했는데 내역이 없네요. 맞으실까요?"로 답한다
                 h = guards.heard_number(self.guard)
                 used = {re.sub(r"\D", "", str(v)) for v in (ran_by_id[tc.id].arguments or {}).values()}
                 if h is not None and h[1] in used:
