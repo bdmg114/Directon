@@ -51,8 +51,8 @@
         <label for="history" class="sub-label">이전 대화 history (JSON 배열)</label>
         <textarea id="history" rows="4" class="mono" spellcheck="false" placeholder='[{"role":"customer","text":"배송 문의요."},{"role":"agent","text":"네, 말씀하세요."}]'></textarea>
         <label for="extra" class="sub-label">session.start에 더할 필드 (JSON 객체)</label>
-        <textarea id="extra" rows="2" class="mono" spellcheck="false" placeholder='{"debug": true}'></textarea>
-        <p class="hint">상담원이 <code>debug.*</code> 이벤트를 지원하면 여기서 켭니다(README 참고).</p>
+        <textarea id="extra" rows="2" class="mono" spellcheck="false" placeholder='{"debug": false}'></textarea>
+        <p class="hint"><code>"debug": true</code>는 기본으로 보냅니다(인식 텍스트·함수 호출·끼어들기 표시). 끄려면 <code>{"debug": false}</code>를 적습니다(README 참고).</p>
       </details>
       <div class="field check">
         <input id="halfduplex" type="checkbox" checked>

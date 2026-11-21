@@ -134,3 +134,13 @@ def test_readme_exists():
     txt = (KIT / "README.md").read_text(encoding="utf-8")
     for must in ["python -m feedback_kit", "--agent-ws", "turn.end", "debug.stt", "feedback_sessions"]:
         assert must in txt
+
+
+def test_session_start_sends_debug_true_by_default_and_extra_overrides():
+    """AG-T56: 인식 텍스트·함수 호출을 보려면 debug가 켜져 있어야 한다. 추가 필드가 기본값보다 뒤에 합쳐진다."""
+    js = (KIT / "static" / "app.js").read_text(encoding="utf-8")
+    start = js.index("const msg = Object.assign({")
+    block = js[start:js.index("msg.type = \"session.start\"", start)]
+    assert "debug: true," in block
+    assert block.rstrip().endswith("}, extra);")          # extra가 마지막 인수 → {"debug": false}로 끌 수 있다
+    assert '{"debug": false}' in (KIT / "README.md").read_text(encoding="utf-8")
