@@ -97,7 +97,10 @@ async def run_case(case: dict, text: str, llm, store, tools: list[dict]) -> dict
     s = Settings.from_env()
     info = SessionInfo(session_id=case["case_id"], case_id=case["case_id"], now=case["now"],
                        history=case.get("history") or [], caller=case.get("customer_profile"), tools_url="")
-    opener = select_opener_for_text(text, s, default=s.openers[0])
+    from agent.knowledge import history_numbers
+    _n = history_numbers(info.history)
+    can_lookup = bool(re.sub(r"\D", "", str((info.caller or {}).get("phone") or "")) or _n["orders"] or _n["phones"])
+    opener = select_opener_for_text(text, s, default=s.openers[0], can_lookup=can_lookup)   # 서버(Session._opener_for)와 같게
     calls: list[dict] = []
     preload_text, preload_results = "", []
     phone = re.sub(r"\D", "", str((info.caller or {}).get("phone") or ""))
@@ -110,6 +113,8 @@ async def run_case(case: dict, text: str, llm, store, tools: list[dict]) -> dict
         preload_results = [{"name": "get_order_info", "arguments": a, "result": res}]
         preload_text = json.dumps(res, ensure_ascii=False)[:3000]
     system = knowledge.build_system(info, opener, preload=preload_text)
+    from agent import intents
+    system += intents.system_suffix(text, info.history)     # AG-T62: 서버(Session)와 같은 위치
 
     async def call_tool(name: str, a: dict) -> dict:
         res, matched = store.lookup(name, a)
@@ -134,6 +139,31 @@ async def run_case(case: dict, text: str, llm, store, tools: list[dict]) -> dict
     return out
 
 
+import httpx as _httpx  # noqa: E402
+
+
+class _BazeJudgeTransport(_httpx.AsyncBaseTransport):
+    """공식 채점기의 api.openai.com/v1/... 요청을 BAZE 게이트웨이(OpenAI 호환)로 옮긴다."""
+
+    def __init__(self, base: str, key: str):
+        import httpx
+        self.base = base.rstrip("/")
+        self.key = key
+        self.inner = httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(self, request):
+        import httpx
+        if request.url.host == "api.openai.com":
+            path = request.url.path.removeprefix("/v1")
+            headers = {k: v for k, v in request.headers.items() if k.lower() not in ("authorization", "host", "content-length")}
+            headers["Authorization"] = "Bearer " + self.key
+            request = httpx.Request(request.method, self.base + path, headers=headers, content=request.content)
+        return await self.inner.handle_async_request(request)
+
+    async def aclose(self):
+        await self.inner.aclose()
+
+
 def load_official_score():
     spec = importlib.util.spec_from_file_location("official_score", KIT / "eval" / "score.py")
     mod = importlib.util.module_from_spec(spec)
@@ -149,8 +179,14 @@ async def cmd_run(args) -> None:
     from agent.providers.factory import ProviderConfig, make_llm
     from mock_api.server import load_store
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise SystemExit("OPENAI_API_KEY가 필요합니다(LLM과 응대 채점). 대회 키는 쓰지 않습니다.")
+    # 키: OPENAI_API_KEY(직접)가 있으면 그것만 쓴다. 없고 BAZE_API_KEY(대회 게이트웨이)가 있으면 게이트웨이로
+    # 상담원 LLM과 (--no-judge가 아니면) 응대 채점을 보낸다. 채점은 공식 score.judge를 그대로 부르고,
+    # api.openai.com 요청만 게이트웨이 주소로 옮긴다(공식 키트는 고치지 않는다).
+    direct = bool(os.environ.get("OPENAI_API_KEY"))
+    baze = "" if direct else os.environ.get("BAZE_API_KEY", "").strip()
+    if not direct and not baze:
+        raise SystemExit("키가 없습니다: .env에 OPENAI_API_KEY 또는 BAZE_API_KEY를 넣으세요.")
+    print(f"키: {'OPENAI_API_KEY(직접)' if direct else 'BAZE_API_KEY(게이트웨이)'}", flush=True)
     cases = load_cases()
     ids = pick(cases, args.only, args.limit)
     if args.source == "stt":
@@ -161,7 +197,7 @@ async def cmd_run(args) -> None:
         ids = [c for c in ids if c in texts]
     else:
         texts = {c: " ".join(cases[c]["customer_utterance"].split()) for c in ids}
-    llm = make_llm(ProviderConfig.from_env(baze_api_key=""))          # 직접 키만
+    llm = make_llm(ProviderConfig.from_env(baze_api_key="") if direct else ProviderConfig.from_env())
     store = load_store()
     tools = [{"type": "function", "function": t} for t in store.tools]
     sem = asyncio.Semaphore(args.concurrency)
@@ -187,7 +223,12 @@ async def cmd_run(args) -> None:
 
     # 같은 코드로 돌려도 응대가 6점까지 벌어진다(2026-11-21 실측). 변경의 효과는 --repeat 3 이상의 평균으로 판단한다.
     lines, resps, tools_ = [], [], []
-    async with httpx.AsyncClient(timeout=180) as c:
+    transport = None
+    if baze and not args.no_judge:
+        from agent.providers.factory import baze_url
+        os.environ.setdefault("OPENAI_API_KEY", "via-baze")        # score.KEY()가 읽는 자리(헤더는 아래에서 바꾼다)
+        transport = _BazeJudgeTransport(baze_url(ProviderConfig.from_env()), baze)
+    async with httpx.AsyncClient(timeout=180, transport=transport) as c:
         for i in range(max(1, args.repeat)):
             out = Path(args.out) if args.repeat <= 1 else Path(args.out) / f"r{i + 1}"
             out.mkdir(parents=True, exist_ok=True)

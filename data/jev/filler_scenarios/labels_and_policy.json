@@ -1,0 +1,33 @@
+{
+  "dataset_name": "Korean health-supplement shopping CS filler classification examples",
+  "usage": "Synthetic supervised examples for classification/prompt examples and evaluation. Not native Jev fine-tuning format.",
+  "intent_labels": {
+    "DELIVERY": "배송현황, 지연, 배송지 변경",
+    "ORDER": "주문 현황 및 주문 정보",
+    "CANCEL": "주문 취소 및 취소 가능 여부",
+    "RETURN_REFUND": "반품, 교환, 환불",
+    "PAYMENT": "결제 관련 문제",
+    "SUBSCRIPTION": "정기배송 및 반복결제",
+    "PRODUCT_INFO": "상품 성분, 표시사항, 섭취법, 기능성 안내",
+    "PRODUCT_SAFETY": "섭취 후 이상 반응·안전 우려",
+    "QUALITY_ISSUE": "상품 파손, 변질, 상태 문제",
+    "HUMAN_HANDOFF": "사람 상담원 연결 요청",
+    "OTHER": "미분류, 범위 밖, 불분명한 상황"
+  },
+  "dialogue_states": {
+    "NORMAL": "일반 발화",
+    "CORRECTION": "정정 발화",
+    "MISSING_INFO": "필수 정보 누락",
+    "MULTIPLE_INTENTS": "복수 의도",
+    "UNCLEAR": "불명확하거나 발화 미완성"
+  },
+  "selection_guidelines": [
+    "실제 쇼핑몰 정책이나 함수 반환값을 확인하기 전에는 처리 완료, 환불 확정, 배송일을 단언하지 않는다.",
+    "채움말은 LLM/함수 실행 대기 동안 필요할 때 한 번만 재생하고, 실제 응답이 준비되면 생략한다.",
+    "정정 발화는 이전 슬롯 값을 무효화하고 새 값을 검증한다. 특히 취소/환불 실행은 명시적 확인 전 금지한다.",
+    "고객 발화가 끝나지 않았다면 VAD/EOT를 우선 사용하여 기다린다.",
+    "PRODUCT_SAFETY와 응급 신호는 범용 채움말보다 안전 대응 및 사람 상담원 인계를 우선한다.",
+    "확률은 Jev 모델 출력의 분류 신뢰도에 한정하며, 데이터셋 레코드에는 근거 없는 발생확률을 넣지 않는다.",
+    "Jev의 구체적인 입력 JSON은 사용하는 SDK/API 규격에 따라 별도로 변환한다."
+  ]
+}

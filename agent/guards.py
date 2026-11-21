@@ -310,6 +310,39 @@ def _in_soup(d: str, soups: list[str]) -> bool:
 
 
 # ── 인수 정리 ─────────────────────────────────────────
+def expand_order_digits(d: str) -> str:
+    """연도 앞 두 자리를 빼고 부른 주문번호(260929 0004550 → 13자리)를 15자리(20260929…)로."""
+    try:
+        from agent.turn.rules import short_order_id
+        if short_order_id(d):
+            return "20" + d
+    except Exception:  # noqa: BLE001
+        pass
+    return d
+
+
+def _heard_orders(ctx: GuardContext) -> list[str]:
+    """이번 고객 말에서 들은 주문번호(형식에 맞는 것만, 연도 앞 두 자리를 뺀 꼴은 15자리로 바꿔서)."""
+    out: list[str] = []
+    for n in _utterance_numbers(getattr(ctx, "user_text", "") or ""):
+        o = expand_order_digits(n)
+        if valid_order(o) and o not in out:
+            out.append(o)
+    return out
+
+
+def _restore_heard_numbers(name: str, out: dict, ctx: GuardContext) -> None:
+    """주문 조회를 번호 없이 불렀고 이번 고객 말에 형식에 맞는 주문번호가 딱 하나면 그 번호로 채운다
+    (전화번호는 AG-T58 _unmask_phone·heard_phone이 맡는다). 실측(2026-11-21 데모): "260929. 0004550. 이요." →
+    '이요'를 숫자 2로 읽고 연도 앞 두 자리가 없어 주문번호로 모이지 않았다(AG-T63)."""
+    if name != "get_order_info" or any(k in out and not _empty(out[k]) for k in (*PHONE_KEYS, *ORDER_KEYS)):
+        return
+    orders = _heard_orders(ctx)
+    phones = [n for n in _utterance_numbers(getattr(ctx, "user_text", "") or "") if valid_phone(n)]
+    if len(orders) == 1 and not phones:
+        out["order_id"] = orders[0]
+
+
 def format_order_id(d: str) -> str:
     """15자리 → "YYYYMMDD-NNNNNNN", 그 밖은 숫자 그대로."""
     d = _digits(d)
@@ -408,6 +441,8 @@ def _normalize_ids(out: dict, kn: _Known) -> None:
             if not d:
                 del out[key]                        # null·빈 값·숫자 없는 값이 진짜 번호를 가리지 않게
                 continue
+            if kind == "orders":
+                d = expand_order_digits(d)
             d = _snap(d, kind, kn)
             out[key] = format_order_id(d) if kind == "orders" else d
     if ITEMS_KEY not in out:
@@ -871,6 +906,8 @@ def _check(name: str, args: Any, ctx: GuardContext) -> Verdict:
     params = defs.get(name) if defs else None
 
     # 2·3. 번호 인수 정리, 아는 번호에 맞춤
+    if name in LOOKUP_FUNCS or name in ACTION_FUNCS:
+        _restore_heard_numbers(name, out, ctx)
     kn = _collect(ctx)
     _normalize_ids(out, kn)
     caller = ctx.caller if isinstance(ctx.caller, dict) else {}

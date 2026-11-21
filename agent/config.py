@@ -58,6 +58,9 @@ class Settings:
     max_tool_rounds: int = 3            # LLM 호출 최대 횟수(마지막 회차는 툴 없이)
     sentence_gap_ms: int = -1           # 말하는 소리 조각(첫 마디·채움말·결과 문구·답 문장) 사이 쉼. 음수면 responder.DEFAULT_SENTENCE_GAP_MS(800), 0이면 끔
     tts_combine: bool = True            # 회차의 첫 문장 뒤 문장들은 묶어서 한 번에 합성(게이트웨이 TTS는 스트리밍이 없고 분당 요청 한도가 있다)
+    tts_sentence_cache: bool = True    # 이미 합성한 일반 문장(숫자·이름 없음)은 캐시에서 바로 보내고, 새 문장도 남긴다(게이트웨이 TTS 문장당 ~3초)
+    empathy_filler: bool = True         # 답이 늦을 때만 첫마디 뒤에 상황별 공감 한마디(AG-T65, knowledge.EMPATHY_PHRASES). 한 통화에 한 번
+    empathy_gap_ms: int = 700           # 첫마디 재생이 끝나고 이만큼 지나도 답 소리가 없으면 공감 한마디를 낸다
     preload_orders: bool = False        # 연결 직후 발신자 전화번호로 주문을 미리 조회해 맥락에 넣는다(AG-T34). 기본 끔:
                                         # 2026-11-21 텍스트 평가 80문항에서 켜면 응대 65.9 → 57.2(주문과 무관한 문의에 조회 기록이 붙어 감점)
     preload_wait_s: float = 1.5         # 응답을 시작할 때 미리 조회가 아직 안 끝났으면 이만큼 기다린다

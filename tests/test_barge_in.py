@@ -197,7 +197,7 @@ async def test_barge_in_stops_tts_ends_turn_and_answers_new_utterance(tmp_path):
     assert last[-2].role == "assistant" and INTERRUPTED_NOTE in last[-2].content
     assert last[-2].content.startswith(t1)
     assert last[-3].content == "배송 언제 와요?"
-    assert proto[2]["text"].endswith("네, 주문을 취소해 드릴게요.")
+    assert proto[2]["text"].endswith(" 주문을 취소해 드릴게요.")     # 첫 마디가 "네, …"면 답 첫머리 "네,"는 뺀다(AG-T63)
     # 끼어든 말의 시작(프리롤 포함)이 새 STT 스트림으로 들어갔다
     assert deps.stt.streams[1].audio >= 25
 
@@ -363,7 +363,7 @@ async def test_verify_confirms_real_interruption(tmp_path):
     assert S2 not in proto[0]["text"]                             # 확인 뒤 끊었다
     assert 0 in llm.cancelled
     assert llm.calls[-1]["messages"][-1].content == "아니요, 교환이요"
-    assert proto[2]["text"].endswith("네, 교환으로 안내해 드릴게요.")
+    assert proto[2]["text"].endswith(" 교환으로 안내해 드릴게요.")   # 첫마디가 "네, …"면 답 첫머리 "네,"는 뺀다(효림)
 
 
 async def test_verify_empty_text_but_long_speech_counts_as_interruption(tmp_path):

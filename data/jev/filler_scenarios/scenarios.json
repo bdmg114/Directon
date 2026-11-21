@@ -1,0 +1,502 @@
+[
+  {
+    "id": "CS001",
+    "utterance": "유산균 주문했는데 언제 와요?",
+    "intent": "DELIVERY",
+    "dialogue_state": "NORMAL",
+    "filler_text": "네, 배송 상황을 확인해볼게요.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS002",
+    "utterance": "오늘 출발한 오메가3 배송 조회 부탁해요.",
+    "intent": "DELIVERY",
+    "dialogue_state": "NORMAL",
+    "filler_text": "주문 배송 현황을 확인하겠습니다.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS003",
+    "utterance": "배송이 일주일째 안 와요.",
+    "intent": "DELIVERY",
+    "dialogue_state": "NORMAL",
+    "filler_text": "많이 기다리셨겠어요. 배송 상황을 확인할게요.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS004",
+    "utterance": "주소가 잘못됐는데 배송지 바꿀 수 있어요?",
+    "intent": "DELIVERY",
+    "dialogue_state": "NORMAL",
+    "filler_text": "배송지 변경 가능 여부를 확인하겠습니다.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS005",
+    "utterance": "제가 주문한 게 언제 도착해요? 번호는 모르겠어요.",
+    "intent": "DELIVERY",
+    "dialogue_state": "MISSING_INFO",
+    "filler_text": "주문을 찾을 수 있도록 필요한 정보부터 확인할게요.",
+    "recommended_next_step": "ask_required_info",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS006",
+    "utterance": "제 주문 제대로 접수됐는지 알려주세요.",
+    "intent": "ORDER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "주문 내역을 확인해볼게요.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS007",
+    "utterance": "어제 산 비타민 주문번호가 뭔지 확인하고 싶어요.",
+    "intent": "ORDER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "주문 내역을 확인하는 방법을 살펴볼게요.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS008",
+    "utterance": "아직 출고 전이면 취소하고 싶어요.",
+    "intent": "CANCEL",
+    "dialogue_state": "NORMAL",
+    "filler_text": "취소 가능 여부를 먼저 확인하겠습니다.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS009",
+    "utterance": "주문 취소 가능한지만 알려주세요.",
+    "intent": "CANCEL",
+    "dialogue_state": "NORMAL",
+    "filler_text": "취소 가능 여부를 확인해볼게요.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS010",
+    "utterance": "그때 주문한 거 취소해주세요. 번호는 몰라요.",
+    "intent": "CANCEL",
+    "dialogue_state": "MISSING_INFO",
+    "filler_text": "취소 요청에 필요한 주문 정보부터 확인할게요.",
+    "recommended_next_step": "ask_required_info",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS011",
+    "utterance": "먹던 비타민인데 반품할 수 있나요?",
+    "intent": "RETURN_REFUND",
+    "dialogue_state": "NORMAL",
+    "filler_text": "반품 관련 기준을 확인해드릴게요.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS012",
+    "utterance": "환불한다고 했는데 입금이 아직 안 됐어요.",
+    "intent": "RETURN_REFUND",
+    "dialogue_state": "NORMAL",
+    "filler_text": "환불 진행 상태를 확인해보겠습니다.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS013",
+    "utterance": "잘못 온 제품을 교환하고 싶어요.",
+    "intent": "RETURN_REFUND",
+    "dialogue_state": "NORMAL",
+    "filler_text": "교환 절차를 확인하겠습니다.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS014",
+    "utterance": "제품 개봉했는데 환불 규정이 어떻게 되나요?",
+    "intent": "RETURN_REFUND",
+    "dialogue_state": "NORMAL",
+    "filler_text": "제품 상태에 따른 반품 기준을 확인할게요.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS015",
+    "utterance": "결제 금액이 두 번 빠져나간 것 같아요.",
+    "intent": "PAYMENT",
+    "dialogue_state": "NORMAL",
+    "filler_text": "결제 내역을 확인해보겠습니다.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS016",
+    "utterance": "카드 결제가 실패했다고 뜨는데 주문은 된 건가요?",
+    "intent": "PAYMENT",
+    "dialogue_state": "NORMAL",
+    "filler_text": "주문과 결제 상태를 확인해볼게요.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS017",
+    "utterance": "정기배송인 줄 몰랐는데 또 결제됐어요.",
+    "intent": "SUBSCRIPTION",
+    "dialogue_state": "NORMAL",
+    "filler_text": "정기구매 여부와 결제 상태를 확인할게요.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS018",
+    "utterance": "다음 달 정기배송만 한 번 건너뛰고 싶어요.",
+    "intent": "SUBSCRIPTION",
+    "dialogue_state": "NORMAL",
+    "filler_text": "다음 배송 일정 변경 가능 여부를 확인할게요.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS019",
+    "utterance": "이 제품에는 비타민D가 얼마나 들어 있나요?",
+    "intent": "PRODUCT_INFO",
+    "dialogue_state": "NORMAL",
+    "filler_text": "제품에 표시된 정보를 확인해드릴게요.",
+    "recommended_next_step": "check_product_info",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS020",
+    "utterance": "이 유산균 하루에 몇 캡슐 먹나요?",
+    "intent": "PRODUCT_INFO",
+    "dialogue_state": "NORMAL",
+    "filler_text": "제품의 표시된 섭취 방법을 확인하겠습니다.",
+    "recommended_next_step": "check_product_info",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS021",
+    "utterance": "이거 먹으면 살이 빠지는 거 맞아요?",
+    "intent": "PRODUCT_INFO",
+    "dialogue_state": "NORMAL",
+    "filler_text": "표시된 기능성 정보를 확인해드릴게요.",
+    "recommended_next_step": "check_product_info",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS022",
+    "utterance": "유산균 먹고 속이 너무 아파요. 계속 먹어도 되나요?",
+    "intent": "PRODUCT_SAFETY",
+    "dialogue_state": "NORMAL",
+    "filler_text": "섭취 후 불편을 겪으셨군요. 안전을 위해 확인이 필요합니다.",
+    "recommended_next_step": "safety_handoff",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS023",
+    "utterance": "이거 먹고 두드러기가 났어요.",
+    "intent": "PRODUCT_SAFETY",
+    "dialogue_state": "NORMAL",
+    "filler_text": "섭취 후 이상 반응을 말씀하셨군요. 건강 상태 확인이 우선입니다.",
+    "recommended_next_step": "safety_handoff",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS024",
+    "utterance": "캡슐 색깔이 평소랑 다른데 먹어도 되나요?",
+    "intent": "QUALITY_ISSUE",
+    "dialogue_state": "NORMAL",
+    "filler_text": "제품 상태를 확인할 필요가 있습니다.",
+    "recommended_next_step": "safety_handoff",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS025",
+    "utterance": "영양제 병이 깨져서 왔어요.",
+    "intent": "QUALITY_ISSUE",
+    "dialogue_state": "NORMAL",
+    "filler_text": "파손된 제품 관련 절차를 확인하겠습니다.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS026",
+    "utterance": "주문번호 1234요. 아니, 1243이에요.",
+    "intent": "ORDER",
+    "dialogue_state": "CORRECTION",
+    "filler_text": "정정해주신 주문번호로 확인할게요.",
+    "recommended_next_step": "update_state",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS027",
+    "utterance": "공일공이 아니라 영일영이라고요.",
+    "intent": "ORDER",
+    "dialogue_state": "CORRECTION",
+    "filler_text": "말씀하신 번호를 다시 확인할게요.",
+    "recommended_next_step": "update_state",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS028",
+    "utterance": "취소할까 했는데 그냥 배송해 주세요.",
+    "intent": "CANCEL",
+    "dialogue_state": "CORRECTION",
+    "filler_text": "취소 요청은 진행하지 않고 현재 상태를 확인할게요.",
+    "recommended_next_step": "cancel_pending_action",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS029",
+    "utterance": "취소하고 싶다는 게 아니라 취소 가능한지 묻는 거예요.",
+    "intent": "CANCEL",
+    "dialogue_state": "CORRECTION",
+    "filler_text": "네, 가능 여부만 확인하겠습니다.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS030",
+    "utterance": "아직 취소하지는 마시고요.",
+    "intent": "CANCEL",
+    "dialogue_state": "NORMAL",
+    "filler_text": "네, 취소 처리는 진행하지 않겠습니다.",
+    "recommended_next_step": "block_action",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS031",
+    "utterance": "AI 말고 사람 상담원 연결해주세요.",
+    "intent": "HUMAN_HANDOFF",
+    "dialogue_state": "NORMAL",
+    "filler_text": "상담원 연결 절차를 안내해드리겠습니다.",
+    "recommended_next_step": "handoff",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS032",
+    "utterance": "그건 됐고 담당자 좀 바꿔주세요.",
+    "intent": "HUMAN_HANDOFF",
+    "dialogue_state": "NORMAL",
+    "filler_text": "사람 상담원 연결을 안내해드릴게요.",
+    "recommended_next_step": "handoff",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS033",
+    "utterance": "배송도 늦고 환불도 하고 싶어요.",
+    "intent": "DELIVERY",
+    "dialogue_state": "MULTIPLE_INTENTS",
+    "filler_text": "배송과 환불 문의를 말씀하셨군요.",
+    "recommended_next_step": "clarify_priority",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS034",
+    "utterance": "환불도 궁금하지만 일단 지금 배송 중인지부터 알려줘요.",
+    "intent": "DELIVERY",
+    "dialogue_state": "MULTIPLE_INTENTS",
+    "filler_text": "우선 배송 상태부터 확인해볼게요.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS035",
+    "utterance": "정기배송은 해지하지 말고 다음 달만 쉬고 싶어요.",
+    "intent": "SUBSCRIPTION",
+    "dialogue_state": "CORRECTION",
+    "filler_text": "해지 대신 한 달 건너뛰는 방법을 확인할게요.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS036",
+    "utterance": "아니 그 저기 뭐라고 해야 하지…",
+    "intent": "OTHER",
+    "dialogue_state": "UNCLEAR",
+    "filler_text": "네, 편하게 말씀해 주세요.",
+    "recommended_next_step": "listen_or_clarify",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS037",
+    "utterance": "저기 그게 그러니까 좀 복잡한데요.",
+    "intent": "OTHER",
+    "dialogue_state": "UNCLEAR",
+    "filler_text": "네, 어떤 점이 불편하셨는지 말씀해 주세요.",
+    "recommended_next_step": "listen_or_clarify",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS038",
+    "utterance": "아까 AI가 알려준 게 틀렸어요.",
+    "intent": "OTHER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "혼란을 드려 죄송합니다. 어떤 안내였는지 확인하겠습니다.",
+    "recommended_next_step": "clarify",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS039",
+    "utterance": "쇼핑몰 이벤트 관련 제휴 문의하려고요.",
+    "intent": "OTHER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "문의 내용을 확인하고 적절한 안내 방법을 살펴볼게요.",
+    "recommended_next_step": "clarify_or_handoff",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS040",
+    "utterance": "판매하는 건강식품이 아닌데 문의해도 되나요?",
+    "intent": "OTHER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "어떤 내용인지 먼저 말씀해주시겠어요?",
+    "recommended_next_step": "clarify",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS041",
+    "utterance": "음… 잠시 생각 좀 할게요.",
+    "intent": "OTHER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "",
+    "recommended_next_step": "wait_silently",
+    "filler_allowed": false,
+    "synthetic": true
+  },
+  {
+    "id": "CS042",
+    "utterance": "여보세요? 소리가 잘 안 들려요.",
+    "intent": "OTHER",
+    "dialogue_state": "UNCLEAR",
+    "filler_text": "음성이 잘 들리지 않으시는군요. 다시 말씀드릴게요.",
+    "recommended_next_step": "audio_recovery",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS043",
+    "utterance": "숨쉬기가 어렵고 입술이 부었어요.",
+    "intent": "PRODUCT_SAFETY",
+    "dialogue_state": "NORMAL",
+    "filler_text": "호흡 곤란과 부종이 있다면 즉시 응급 도움을 요청하세요.",
+    "recommended_next_step": "urgent_safety",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS044",
+    "utterance": "전화번호만 아는데 부모님 대신 주문 조회할 수 있나요?",
+    "intent": "ORDER",
+    "dialogue_state": "MISSING_INFO",
+    "filler_text": "조회에 필요한 확인 절차를 안내드리겠습니다.",
+    "recommended_next_step": "identity_verification",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS045",
+    "utterance": "카드 결제가 두 번 됐고 주문도 취소하고 싶어요.",
+    "intent": "PAYMENT",
+    "dialogue_state": "MULTIPLE_INTENTS",
+    "filler_text": "중복 결제와 취소 요청을 함께 말씀하셨군요.",
+    "recommended_next_step": "clarify_priority",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS046",
+    "utterance": "유통기한이 지난 제품이 배송됐어요.",
+    "intent": "QUALITY_ISSUE",
+    "dialogue_state": "NORMAL",
+    "filler_text": "제품 상태와 처리 절차를 확인하겠습니다.",
+    "recommended_next_step": "check_policy",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS047",
+    "utterance": "그 뭐였지… 아 잠깐만요.",
+    "intent": "OTHER",
+    "dialogue_state": "UNCLEAR",
+    "filler_text": "",
+    "recommended_next_step": "wait_silently",
+    "filler_allowed": false,
+    "synthetic": true
+  },
+  {
+    "id": "CS048",
+    "utterance": "건강 상담을 전문적으로 받을 수 있나요?",
+    "intent": "OTHER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "상품 안내 범위와 전문가 상담 가능 여부를 확인하겠습니다.",
+    "recommended_next_step": "clarify_or_handoff",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS049",
+    "utterance": "반품 신청은 했는데 회수는 언제 와요?",
+    "intent": "RETURN_REFUND",
+    "dialogue_state": "NORMAL",
+    "filler_text": "반품 수거 진행 상황을 확인하겠습니다.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  },
+  {
+    "id": "CS050",
+    "utterance": "제가 어제 주문한 상품 종류가 뭐였죠?",
+    "intent": "ORDER",
+    "dialogue_state": "NORMAL",
+    "filler_text": "주문 내역을 확인해볼게요.",
+    "recommended_next_step": "tool_lookup",
+    "filler_allowed": true,
+    "synthetic": true
+  }
+]

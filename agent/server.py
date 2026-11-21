@@ -270,7 +270,7 @@ def build_deps(settings: Settings | None = None) -> SessionDeps:
                        smart_turn=None, detector_factory=detector_factory,
                        tools=ToolsClient(local_tools=_local_tools()), cache=cache,
                        settings=s, normalize_args=normalize, log_writer=TurnLogWriter(s.log_dir),
-                       handoff=_make_handoff())
+                       handoff=_make_handoff(), filler=_make_filler())
 
 
 def _local_tools() -> list[dict] | None:
@@ -289,6 +289,15 @@ def _local_tools() -> list[dict] | None:
     if not isinstance(tools, list) or not tools:
         return None
     return [t if isinstance(t, dict) and "function" in t else {"type": "function", "function": t} for t in tools]
+
+
+def _make_filler() -> Any:
+    """AG-T66 Jev 채움말 판정기: DIRECTON_JEV_FILLER=1과 TYPESAFE_API_KEY가 다 있을 때만. 아니면 None(로컬 규칙만)."""
+    from agent import filler_jev
+    j = filler_jev.make_filler_judge()
+    if j is not None:
+        log.info("Jev 채움말 판정 켬(%s, 질문 %d개)", filler_jev.MODEL, len(j.questions))
+    return j
 
 
 def _make_handoff() -> Any:
@@ -388,7 +397,8 @@ async def warmup(deps: SessionDeps) -> dict:
     base = deps.settings.cached_phrases()
     extra = [p for p in opener_phrases(deps.settings) if p not in base]   # AG-T20 첫 마디 후보(기본 문구 뒤)
     extra += [p for p in (*knowledge.FAIL_SENTENCES.values(), *knowledge.TOOL_PHRASES.values(),
-                          knowledge.NEUTRAL_PHRASE) if p not in base and p not in extra]
+                          knowledge.NEUTRAL_PHRASE, *knowledge.COMMON_SENTENCES,
+                          *knowledge.empathy_variants()) if p not in base and p not in extra]
     n_extra = 0
 
     async def cache() -> int:

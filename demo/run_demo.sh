@@ -84,6 +84,13 @@ wait_port() {  # port, timeout_s, name
   return 1
 }
 
+# 키 확인: STT(Soniox)·LLM·TTS를 모두 대회 게이트웨이로 쓰려면 BAZE_API_KEY 하나면 된다(.env 또는 환경변수)
+if ! { [ -n "${BAZE_API_KEY:-}" ] || [ -n "${SONIOX_API_KEY:-}" ] || grep -qE '^(BAZE_API_KEY|SONIOX_API_KEY)=.+' .env 2>/dev/null; }; then
+  echo "키가 없습니다: .env 에 BAZE_API_KEY=... 를 넣으세요(음성 인식·답변·음성 합성을 모두 게이트웨이로 씁니다)."
+  trap - INT TERM EXIT
+  exit 1
+fi
+
 echo "[1/3] Mock API :$MOCK_PORT"
 start_server mock -m mock_api.server --port "$MOCK_PORT"
 wait_port "$MOCK_PORT" 30 "Mock API" || cleanup

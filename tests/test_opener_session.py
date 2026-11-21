@@ -78,9 +78,9 @@ async def test_not_ready_uses_opener_and_never_repeats_across_turns(tmp_path):
     caller = {"name": "홍길동", "phone": "01012345678"}
     ws = FakeWS(start_msg(opener_adaptive=True, caller=caller), utterance(30), utterance(30), utterance(30), turns=3)
     llm = DelayLLM(ws, text_events("조회해 보니 배송 중입니다."), delays=[25, 25, 25])
-    stt = FakeSTT(texts=[("주문 조회해 주세요", "주문 조회해 주세요"),
-                         ("다른 주문도 조회해 주세요", "다른 주문도 조회해 주세요"),
-                         ("그럼 반품 조회도 해 주세요", "그럼 반품 조회도 해 주세요")])
+    stt = FakeSTT(texts=[("주문 조회해 주세요 공일공 일이삼사 오육칠팔", "주문 조회해 주세요 공일공 일이삼사 오육칠팔"),
+                         ("다른 주문도 조회해 주세요 공일공 일이삼사 오육칠팔", "다른 주문도 조회해 주세요 공일공 일이삼사 오육칠팔"),
+                         ("그럼 반품 조회도 해 주세요 공일공 일이삼사 오육칠팔", "그럼 반품 조회도 해 주세요 공일공 일이삼사 오육칠팔")])
     deps, _ = make_deps(tmp_path, ws=ws, llm=llm, stt=stt, detector=FakeDetector(None),
                         log_writer=writer(tmp_path))
     by_pcm = cache_all_openers(deps)
