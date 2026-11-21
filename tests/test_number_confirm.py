@@ -116,3 +116,19 @@ async def test_cached_answer_sentence_skips_tts(tmp_path):
     assert spoken == [ask]
     assert ask not in tts.requests
     assert pcm and pcm in sink.data
+
+
+# ── AG-T57 KT 통화 피드백·예시 point 반영 ──
+def test_tts_text_turns_digit_hyphen_into_pause():
+    from agent.responder import tts_text
+    assert tts_text("고객센터 02-000-0000번") == "고객센터 02, 000, 0000번"
+    assert tts_text("주문번호 20260929 - 0022095") == "주문번호 20260929, 0022095"
+    assert tts_text("1+1 행사, 하루-이틀") == "1+1 행사, 하루-이틀"
+
+
+def test_rules_reflect_call_feedback_and_example_points():
+    from agent import knowledge as K
+    for phrase in ("같은 질문을 두 번 하지 않는다", "고객 탓으로 들리는 말", "아니에요 괜찮습니다", "거절을 우선한다",
+                   "확인 질문은 최소로 한다", "아직 받지 않은 가장 최근 주문", "배송지를 바꿀 수 없다고 안내한 뒤 상담원 연결",
+                   "주문번호를 먼저 묻고", "하이픈(-) 없이", "출고 전이라는 것"):
+        assert phrase in K.RULES, phrase

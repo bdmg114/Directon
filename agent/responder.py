@@ -180,7 +180,7 @@ class _Speaker:
             self.tlog.event("tts_request", text=text)
         try:
             first = True
-            async for chunk in self.tts.synthesize(text):
+            async for chunk in self.tts.synthesize(tts_text(text)):
                 if first and self.tlog:
                     self.tlog.event("tts_first_byte", text=text)
                 first = False
@@ -390,6 +390,14 @@ def json_piece(sentence: str) -> bool:
     (2026-11-21 공식 측정 P0074-01). 큰따옴표로 인용한 말이나 쉼표·숫자가 있는 보통 문장은 해당하지 않는다."""
     s = _strip_json(_CALL_TEXT.sub(" ", sentence or ""))
     return bool(_BRACE.search(s) or _KEY_TEXT.search(s))
+
+
+_DIGIT_HYPHEN = re.compile(r"(?<=\d)\s*-\s*(?=\d)")
+
+
+def tts_text(text: str) -> str:
+    """TTS에 넘기는 글: 숫자 사이 하이픈은 쉼표로(번호를 끊어 읽게, 하이픈을 '다시'로 읽는 일 방지). 기록·자막 글은 그대로."""
+    return _DIGIT_HYPHEN.sub(", ", text or "")
 
 
 def speech_safe(sentence: str, tool_names: Any = ()) -> str:

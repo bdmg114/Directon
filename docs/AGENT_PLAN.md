@@ -156,6 +156,7 @@ un_demo.ps1`, 가이드 `docs/03_사용자_테스트_가이드.md`) — 마이�
 | AG-T54 | 요청 종류 판정률 평가: `scripts/intent_eval.py`(text_eval.run_case로 한 턴 → 행동 분류 → 허용 행동과 비교, 종류별 정확도·혼동표), 연습 80문항 라벨 `data/eval/request_types.json`, 녹음 대본 200문항 `data/eval/haruon200/` | AG-T33 | DONE(측정 전) | 2026-11-21 |
 | AG-T55 | 소음 속 말 끝: 짧은 소리로 침묵 깨지 않기(`resume_min_ms` 100, 기본 켬), 받아쓰기 글 멈춤 상한(`text_stall_cap_ms` 3000, 기본 켬), 글 멈춤 + 결정기(`text_stall_end_ms`, 기본 끔), 손님 목소리 크기 기준(`speaker_gate_db`, 기본 끔) | AG-T33 | DONE(측정 전) | 2026-11-21 |
 | AG-T56 | 번호 되묻기·응답 지연(데모 피드백): 번호 없는 조회는 이번 말의 번호로 채움, 들은 번호를 되읽어 "맞으실까요?"로 확인(`confirm_heard_number`), 결과 문구 뒤 채움말 생략, 자주 쓰는 답 문장 캐시(`answer_cache`, `answer_phrases`) | AG-T33 | DONE(측정 전) | 2026-11-21 |
+| AG-T57 | 시스템 프롬프트: KT 고객센터 AI 통화 관찰(보완 제안 문서) + 예시 10개 point 반영 — 같은 질문 반복·고객 탓 금지, 짧은 대답·거절 우선, 확인 최소화(접수 뒤 복창), 배송지 변경 대상·출고 후 안내, 취소 환불 문의는 주문번호 먼저, 입금전 안내 예, 숫자 사이 하이픈 없이(TTS 입력은 쉼표) | AG-T56 | DONE(측정 전) | 2026-11-21 |
 | AG-T11 | 전체 회귀 + 결과 보고 | 위 전부 | TODO | |
 
 ## 7. Task 상세 (테스트 먼저)
@@ -319,6 +320,12 @@ un_demo.ps1`, 가이드 `docs/03_사용자_테스트_가이드.md`) — 마이�
 - 동작: (1) 조회 함수에 번호가 없고 이번 고객 말에 형식에 맞는 번호가 하나면 그 번호로 조회(발신자·이전 대화 번호 우선 규칙은 그대로). (2) 조회가 번호 문제(missing·unclear_number)로 막혔거나, 이번 말에서 들은 번호로 `get_order_info`가 not_found면 LLM 회차 없이 "제가 들은 번호는 공일공, ….입니다." + "맞으실까요?"로 끝낸다. 직전 상담원 말이 이미 번호 확인이었으면 하지 않는다. `get_return_info` not_found는 되읽지 않는다(연습 문항 정답이 접수 유형을 묻는다). (3) 결과 문구(`post_tool_bridge`)를 냈으면 채움말 타이머를 취소. (4) 답 문장이 캐시 문구와 같으면 TTS 없이 캐시 음성(서버 시작 때 `answer_phrases` 4개 예열).
 - 남은 일: 응답 지연의 대부분은 TTS 첫 바이트(3초대)다. 행사 지정 `gemini-3.8-flash-lite-tts`가 게이트웨이에서 되면(`GEMINI_TTS_MODEL`) 비교. 함수 결과 뒤 회차만 추론 수준을 낮추는 안은 응대 점수 영향 측정 뒤.
 
+### AG-T57 KT 통화 피드백·예시 point 반영 (2026-11-21 사용자 요청)
+- 근거: "KT 상담원 사용해본 것에 대한 피드백을 반영해주고 examples의 point를 잘 반영하게끔 시스템 프롬프트를 수정해줘." 자료: 보완 제안 PDF(KT 고객센터 AI 통화 관찰, 2026-11-20), 공식 `examples.json` 10개.
+- 반영(`agent/knowledge.py` RULES, 57 → 59줄): 같은 질문 두 번 금지·바꿔 묻기, 고객 탓 문구 금지, 짧은 "네"는 다음 단계로·"아니에요 괜찮습니다"류는 거절 우선(제안한 처리 안 함), 확인 최소화(조회는 바로, 발신자 번호는 "등록된 번호로"만, 분명한 접수는 되묻지 않되 접수 문장에 대상 복창), 배송지 변경(여러 주문 중 아직 받지 않은 최근 주문, 출고 전 주소 받고 상담원 처리, 출고 뒤 변경 불가 + 상담원 연결, EX03), 취소 환불 문의는 번호 없으면 주문번호 먼저(EX09), 입금전 안내 예(EX01), 번호는 하이픈 없이 쉼표, 번호 확인 문구를 시스템 되읽기 문구와 맞춤. `agent/responder.py` `tts_text`: TTS 입력에서만 숫자 사이 하이픈을 쉼표로.
+- 반영하지 않은 것: 제안서의 '취소·반품·교환은 접수 전 명시 확인'. 연습 문항 실제 응대(예: EX05 "전체 환불 원해요" → 바로 return_order)와 어긋나고 턴이 늘어 응대·속도 점수를 잃을 수 있어, 접수 뒤 복창(암묵 확인)으로 대신했다. 끼어들기의 짧은 군말 무시는 프롬프트가 아니라 바지인 코드 쪽 일이라 이번 범위 밖.
+- 남은 일: `scripts/intent_eval.py`·공식 채점으로 전후 비교. EX01~EX10을 문항으로 넣어 재는 것도 가능.
+
 ## 8. 수동 체크리스트
 
 | 항목 | 기대 | 결과 |
@@ -419,3 +426,4 @@ un_demo.ps1`, 가이드 `docs/03_사용자_테스트_가이드.md`) — 마이�
 - 2026-11-21 | AG-T54 | DONE(측정 전) | scripts/intent_eval.py, data/eval/request_types.json(80), data/eval/haruon200(200), tests/test_intent_eval.py. 분류기는 실제 상담 답 79/80 일치. 이 작업 환경에서 OpenAI 접속이 막혀 LLM 측정은 못 함
 - 2026-11-21 | AG-T55 | DONE(측정 전) | agent/{config,session}.py, tests/test_noise_endpoint.py(8개). 이 작업 환경에 numpy·httpx가 없어 pytest를 돌리지 못함 — 반영 후 `uv run pytest -q` 필요
 - 2026-11-21 | AG-T56 | DONE(측정 전) | agent/{guards,responder,config}.py, tests/test_number_confirm.py(9개). 이 작업 환경에서 pytest 미실행
+- 2026-11-21 | AG-T57 | DONE(측정 전) | agent/knowledge.py RULES(59줄), agent/responder.py tts_text, tests/test_number_confirm.py(+2). 이 작업 환경에서 pytest 미실행
