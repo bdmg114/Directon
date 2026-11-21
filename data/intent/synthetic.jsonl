@@ -1,0 +1,62 @@
+{"text": "택배가 아직 안 왔는데 언제 오나요", "allowed": ["delivery", "misdelivery"]}
+{"text": "주문한 거 출고됐어요?", "allowed": ["delivery"]}
+{"text": "송장번호 좀 알려주세요", "allowed": ["delivery"]}
+{"text": "지난주에 시킨 거 며칠 걸려요", "allowed": ["delivery"]}
+{"text": "배송 조회가 안 돼요", "allowed": ["delivery"]}
+{"text": "입금했는데 확인 좀 해주세요", "allowed": ["payment_check"]}
+{"text": "무통장으로 보냈는데 아직 입금 전이래요", "allowed": ["payment_check"]}
+{"text": "어제 입금 완료했어요 확인되나요", "allowed": ["payment_check"]}
+{"text": "배송지 주소 바꾸고 싶어요", "allowed": ["address_change"]}
+{"text": "주소를 잘못 적었어요 변경 돼요?", "allowed": ["address_change"]}
+{"text": "다른 제품이 왔어요", "allowed": ["misdelivery"]}
+{"text": "세 개 시켰는데 두 개만 왔어요", "allowed": ["misdelivery"]}
+{"text": "상품이 하나 빠져 있어요", "allowed": ["misdelivery"]}
+{"text": "배송 완료라는데 못 받았어요", "allowed": ["misdelivery", "delivery"]}
+{"text": "이 제품 성분이 뭐예요", "allowed": ["product", "unknown"]}
+{"text": "관절 영양제 하루에 몇 알 먹어요", "allowed": ["product"]}
+{"text": "눈 영양제 식후에 먹어야 돼요?", "allowed": ["product"]}
+{"text": "간 가드 한 박스에 며칠분이에요", "allowed": ["product"]}
+{"text": "혈당 관리에 좋은 거 추천해 주세요", "allowed": ["product"]}
+{"text": "주문 취소해 주세요", "allowed": ["cancel"]}
+{"text": "방금 주문한 거 취소하고 싶어요", "allowed": ["cancel"]}
+{"text": "실수로 주문했어요 취소 돼요?", "allowed": ["cancel"]}
+{"text": "효과가 없어서 환불하고 싶어요", "allowed": ["return_request"]}
+{"text": "전부 반품해 주세요", "allowed": ["return_request"]}
+{"text": "남은 거 반품 신청할게요", "allowed": ["return_request"]}
+{"text": "포장 다 해놨어요 회수해 가세요", "allowed": ["return_request", "return_status"]}
+{"text": "환불 받고 싶습니다", "allowed": ["return_request"]}
+{"text": "반품하려면 어떻게 해야 돼요", "allowed": ["return_request", "return_policy"]}
+{"text": "먹다가 남은 것도 반품 가능한가요", "allowed": ["return_policy"]}
+{"text": "반품하면 배송비 드나요", "allowed": ["return_policy"]}
+{"text": "개봉했는데 환불 되나요", "allowed": ["return_policy"]}
+{"text": "반품 보낸 지 일주일인데 환불이 아직이에요", "allowed": ["return_status"]}
+{"text": "회수해 갔는데 환불 언제 돼요", "allowed": ["return_status"]}
+{"text": "환불 신청한 거 어떻게 됐나요", "allowed": ["return_status"]}
+{"text": "환불금이 안 들어왔어요", "allowed": ["return_status"]}
+{"text": "같은 걸로 교환하고 싶어요", "allowed": ["exchange"]}
+{"text": "박스가 파손돼서 왔어요", "allowed": ["exchange", "misdelivery"]}
+{"text": "포가 터져서 왔어요", "allowed": ["exchange"]}
+{"text": "혈관 세트 사고 싶은데 어떻게 사요", "allowed": ["purchase"]}
+{"text": "간 영양제 구매하려고요", "allowed": ["purchase"]}
+{"text": "주문 방법 좀 알려주세요", "allowed": ["purchase"]}
+{"text": "인터넷이 어려워서 전화로 주문하고 싶어요", "allowed": ["callback", "purchase"]}
+{"text": "상담원이 전화 좀 주세요", "allowed": ["callback", "agent"]}
+{"text": "연락 주세요 010 1234 5678", "allowed": ["callback"]}
+{"text": "카드 결제 되나요", "allowed": ["policy"]}
+{"text": "5만원 넘으면 배송비 무료예요?", "allowed": ["policy"]}
+{"text": "쿠폰은 어디서 받아요", "allowed": ["policy"]}
+{"text": "적립금 쓸 수 있어요?", "allowed": ["policy"]}
+{"text": "계좌이체로 결제하고 싶어요", "allowed": ["policy"]}
+{"text": "혈압약 먹고 있는데 같이 먹어도 되나요", "allowed": ["health", "product"]}
+{"text": "먹고 나서 두드러기가 났어요", "allowed": ["health"]}
+{"text": "임신 중인데 먹어도 돼요", "allowed": ["health", "product"]}
+{"text": "상담원 바꿔 주세요", "allowed": ["agent"]}
+{"text": "사람이랑 통화하고 싶어요", "allowed": ["agent", "callback"]}
+{"text": "쿠팡에서 샀는데 반품하고 싶어요", "allowed": ["other_channel"]}
+{"text": "스마트스토어에서 주문한 건데요", "allowed": ["other_channel", "unknown"]}
+{"text": "광고가 너무 과장됐네요", "allowed": ["feedback", "unknown"]}
+{"text": "쿠팡보다 비싸요", "allowed": ["feedback", "policy", "unknown"]}
+{"text": "여보세요", "allowed": ["unknown"]}
+{"text": "네", "allowed": ["unknown"]}
+{"text": "010 2222 3333", "allowed": ["unknown"]}
+{"text": "잠깐만요", "allowed": ["unknown"]}

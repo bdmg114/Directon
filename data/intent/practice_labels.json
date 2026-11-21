@@ -1,0 +1,32 @@
+{
+  "_note": "연습 문항(practice_cases.jsonl) case_id → 허용 의도 코드(agent/intents.py). 발화 내용은 넣지 않는다. unknown이 들어 있으면 힌트 없음도 맞음. AG-T55",
+  "labels": {
+    "P0001-02": ["product"], "P0010-11": ["payment_check"], "P0017-02": ["return_status"],
+    "P0018-05": ["return_request"], "P0019-02": ["delivery"], "P0021-10": ["product"],
+    "P0023-01": ["return_status"], "P0025-01": ["policy"], "P0026-01": ["delivery"],
+    "P0027-01": ["delivery"], "P0029-01": ["unknown"], "P0031-02": ["return_status"],
+    "P0032-09": ["return_status"], "P0034-03": ["return_status"], "P0038-02": ["callback", "purchase"],
+    "P0042-01": ["product", "unknown"], "P0043-01": ["other_channel"], "P0044-02": ["callback"],
+    "P0047-03": ["callback"], "P0049-01": ["purchase"], "P0052-02": ["return_request"],
+    "P0054-02": ["callback"], "P0058-02": ["product"], "P0060-02": ["product"],
+    "P0061-06": ["callback", "unknown"], "P0066-01": ["purchase"], "P0067-01": ["policy", "unknown"],
+    "P0071-05": ["return_request"], "P0072-01": ["return_request"], "P0074-01": ["return_request"],
+    "P0077-01": ["feedback", "unknown"], "P0084-01": ["purchase"], "P0086-02": ["return_request"],
+    "P0095-06": ["delivery", "unknown"], "P0099-03": ["return_request"], "P0104-01": ["payment_check"],
+    "P0106-02": ["delivery"], "P0107-01": ["misdelivery"], "P0110-02": ["payment_check"],
+    "P0113-03": ["payment_check"], "P0114-02": ["product"], "P0117-01": ["unknown"],
+    "P0119-04": ["callback"], "P0120-01": ["purchase"], "P0121-01": ["return_policy"],
+    "P0124-01": ["delivery"], "P0125-01": ["unknown"], "P0130-01": ["product"],
+    "P0131-01": ["return_request", "unknown"], "P0133-03": ["callback"], "P0134-01": ["product"],
+    "P0135-01": ["product"], "P0137-01": ["policy"], "P0139-03": ["return_request"],
+    "P0144-01": ["return_request"], "P0147-07": ["return_request"], "P0148-02": ["return_request"],
+    "P0148-08": ["return_request"], "P0149-01": ["product"], "P0152-01": ["misdelivery"],
+    "P0154-02": ["return_request"], "P0155-01": ["policy"], "P0158-01": ["product"],
+    "P0164-05": ["return_request"], "P0165-01": ["feedback", "unknown"], "P0166-01": ["product", "unknown"],
+    "P0167-03": ["callback"], "P0173-02": ["delivery"], "P0175-02": ["delivery"],
+    "P0177-09": ["return_request"], "P0180-01": ["delivery"], "P0185-02": ["callback"],
+    "P0188-01": ["agent", "return_status"], "P0189-01": ["return_status"], "P0192-02": ["purchase"],
+    "P0193-02": ["return_status"], "P0194-03": ["return_status"], "P0196-02": ["payment_check"],
+    "P0197-03": ["return_request"], "P0200-02": ["product", "unknown"]
+  }
+}

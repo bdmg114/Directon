@@ -188,7 +188,10 @@ class _Speaker:
     def __init__(self, tts: TTSProvider, send_audio: AudioSink, spoken: list[str],
                  settings: Settings, tlog: TurnLog | None,
                  on_audio: Callable[[str, bytes], None] | None = None,
-                 play_idle_ms: Callable[[], float] | None = None):
+                 play_idle_ms: Callable[[], float] | None = None,
+                 cache: Any = None, learn: Callable[[str], bool] | None = None):
+        self.cache = cache                  # 이미 합성해 둔 문장이면 TTS를 부르지 않고 바로 보낸다
+        self.learn = learn                  # 새로 합성한 문장 중 이 조건을 통과한 것만 캐시에 남긴다
         self.tts = tts
         self.play_idle_ms = play_idle_ms    # 보낸 소리가 다 재생된 뒤 흐른 시간(ms, 재생 중이면 0). 없으면 빼지 않는다
         self.send_audio = send_audio
@@ -197,11 +200,22 @@ class _Speaker:
         self.settings = settings
         self.tlog = tlog
         self.q: asyncio.Queue = asyncio.Queue()
+        self.sent_any = False               # 이 응답에서 소리를 하나라도 보냈는가(공감 한마디는 그 전에만)
+        self.idle = True                    # 다음 문장을 기다리는 중(보낼 것이 없음)
+        self.waiting_text: str | None = None    # 첫 조각을 기다리는 중인 문장(합성 대기)
+        self._urgent: list[tuple[str, bytes]] = []
+        self._wake = asyncio.Event()
         self.synths: list[asyncio.Task] = []
         self._tail_ms = 0.0                 # 지금까지 보낸 소리 끝의 무음 길이
         self.task = asyncio.create_task(self._run())
 
     def say(self, text: str) -> None:
+        pcm = self.cache.get(text) if self.cache is not None else None
+        if pcm:                             # 자주 하는 문장: 게이트웨이 TTS(문장당 ~3초)를 건너뛴다
+            if self.tlog:
+                self.tlog.event("tts_cached", text=text)
+            self.q.put_nowait(("cached", text, pcm))
+            return
         out: asyncio.Queue = asyncio.Queue()
         self.synths.append(asyncio.create_task(self._synth(text, out)))
         self.q.put_nowait(("tts", text, out))
@@ -214,12 +228,20 @@ class _Speaker:
             self.tlog.event("tts_request", text=text)
         try:
             first = True
+            got: list[bytes] = []
             async for chunk in self.tts.synthesize(tts_text(text)):
                 if first and self.tlog:
                     self.tlog.event("tts_first_byte", text=text)
                 first = False
+                got.append(chunk)
                 out.put_nowait(chunk)
             out.put_nowait(None)
+            if got and self.cache is not None and self.learn is not None:
+                try:
+                    if self.learn(text):
+                        self.cache.put(text, self.cache._prepare(b"".join(got)))
+                except Exception as e:  # noqa: BLE001 — 캐시 저장 실패가 응답을 막으면 안 된다
+                    log.debug("tts learn failed: %r", e)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -246,22 +268,78 @@ class _Speaker:
         await self._send(b"\x00" * n)
         if self.tlog:
             self.tlog.event("sentence_gap", ms=round(need))
+    def play_urgent(self, text: str, pcm: bytes) -> bool:
+        """아직 아무 소리도 안 보냈으면 지금 바로 보낼 캐시 문구(공감 한마디). 합성을 기다리는 문장이 있어도 그 앞에
+        먼저 보낸다. 이미 소리가 나갔거나, 기다리는 문장이 사과라 겹치면 보내지 않고 False."""
+        if self.sent_any or not pcm:
+            return False
+        if self.waiting_text is not None:
+            if _APOLOGY_ONLY.search(self.waiting_text):
+                return False
+            self._urgent.append((text, pcm))
+            self._wake.set()
+            return True
+        if self.idle and self.q.empty():
+            self.q.put_nowait(("pcm", text, pcm))
+            return True
+        return False
+
+    async def _send_urgent(self) -> None:
+        while self._urgent:
+            text, pcm = self._urgent.pop(0)
+            self.spoken.append(text)
+            self._notify("pcm", pcm)
+            await self._send(pcm)
+
+    async def _first_chunk(self, payload: asyncio.Queue, text: str):
+        """문장의 첫 조각을 기다린다. 기다리는 동안 들어온 급한 문구(공감 한마디)는 먼저 보낸다."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.settings.tts_timeout_s
+        get_t = asyncio.ensure_future(payload.get())
+        self.waiting_text = text
+        try:
+            while True:
+                if self._urgent:
+                    await self._send_urgent()
+                wake_t = asyncio.ensure_future(self._wake.wait())
+                left = deadline - loop.time()
+                done, _ = await asyncio.wait({get_t, wake_t}, timeout=max(left, 0),
+                                             return_when=asyncio.FIRST_COMPLETED)
+                wake_t.cancel()
+                if get_t in done:
+                    if self._urgent:                # 첫 조각과 같은 순간에 들어온 문구도 그 앞에 보낸다
+                        await self._send_urgent()
+                    return get_t.result()
+                if wake_t in done:
+                    self._wake.clear()
+                    continue
+                get_t.cancel()
+                raise TimeoutError(f"tts first chunk timeout: {text[:20]}")
+        finally:
+            self.waiting_text = None
+            if not get_t.done():
+                get_t.cancel()
 
     async def _run(self) -> None:
         while True:
+            self.idle = True
             item = await self.q.get()
+            self.idle = False
             if item is None:
                 return
             kind, text, payload = item
-            if kind == "pcm":
+            if kind in ("pcm", "cached"):
                 await self._gap()
                 self.spoken.append(text)
-                self._notify(kind, payload)
+                self._notify("tts" if kind == "cached" else kind, payload)   # cached = 본 응답 문장
                 await self._send(payload)
                 continue
             first = True
             while True:
-                chunk = await asyncio.wait_for(payload.get(), self.settings.tts_timeout_s)
+                if first:
+                    chunk = await self._first_chunk(payload, text)
+                else:
+                    chunk = await asyncio.wait_for(payload.get(), self.settings.tts_timeout_s)
                 if chunk is None:
                     break
                 if isinstance(chunk, BaseException):
@@ -274,6 +352,7 @@ class _Speaker:
                 await self._send(chunk)
 
     def _notify(self, kind: str, pcm: bytes) -> None:
+        self.sent_any = True
         if self.on_audio is not None:
             try:
                 self.on_audio(kind, pcm)
@@ -318,6 +397,9 @@ _NUM_SUFFIXES = [("이거든요", True), ("이야", True), ("거든요", False),
                  ("하고", False), ("랑", False), ("요", False), ("로", False), ("에", False), ("번", False)]
 
 
+_KO_DIGITS = re.compile(r"[공영일이삼사오육칠팔구]{4,}")   # 한글로 읽은 번호(공일공 일이삼사)
+
+
 def _has_final(ch: str) -> bool:
     if ch.isdigit():
         return True
@@ -325,8 +407,16 @@ def _has_final(ch: str) -> bool:
     return 0 <= code <= 11171 and code % 28 != 0
 
 
+# 사과·공감만 하는 짧은 문장(공감 한마디를 냈으면 답 첫 문장의 같은 사과는 뺀다)
+_APOLOGY_ONLY = re.compile(r"^[^.?!]{0,25}(?:죄송|불편을 드려|불편하셨|기다리셨|답답하셨|걱정되셨)[^.?!]{0,15}[.!]?$")
+_YES_START = re.compile(r"^(?:네|예)[,.!]\s*")
+_ENDING_ONLY = frozenset({"이요", "이에요", "이예요", "입니다", "이고", "이고요", "이구요", "이야", "이거든요"})
+
+
 def _token_readings(tok: str) -> list[str]:
     """숫자 토큰의 읽기 후보(첫째가 기본). "삼이요"처럼 '이'가 숫자 2일 수도 있으면 두 읽기를 모두 낸다."""
+    if tok in _ENDING_ONLY:                     # "0004550. 이요."처럼 끝맺음만 따로 떨어진 토큰은 숫자 2가 아니다
+        return []
     out: list[str] = []
     cores = []
     core = tok
@@ -482,7 +572,8 @@ def speech_safe(sentence: str, tool_names: Any = (), mask_number: str = "") -> s
     return s if re.search(r"[가-힣0-9]", s) else ""
 
 
-BRIDGE_NOTE = ("_already_said의 말은 방금 고객에게 이미 했다. 그 말을 되풀이하지 말고 바로 이어서 내용을 말한다.")
+BRIDGE_NOTE = ("_already_said의 말은 방금 고객에게 이미 했다. 그 말이나 같은 뜻의 말(예: 조회되는 내역이 없다)을 다시 하지 말고 "
+               "바로 다음 할 일(다른 번호 요청, 안내)부터 말한다.")
 # 검사(agent.guards)가 번호 인수를 다른 번호로 맞춰 실행했을 때 그 결과에 붙인다(P0133-03: 접수는 4402, 답은 받아쓴 4002를 읽음)
 CALLED_WITH_NOTE = ("이 함수는 _called_with의 번호로 실행됐다. 그 번호를 고객에게 말할 때는 고객이 방금 말한 글의 번호가 아니라 "
                     "_called_with의 값을 쓴다.")
@@ -584,6 +675,8 @@ class Responder:
         self.tool_log: list[dict] = []
         self._tool_names = [t.get("function", t).get("name") for t in self.tools if isinstance(t, dict)]
         self._filler_used = False
+        self._empathy: tuple[str, bytes] | None = None   # 이번 응답의 공감 한마디(AG-T61)
+        self.empathy_used = ""                      # 실제로 낸 공감 한마디(없으면 "")
         self._bridges: list[str] = []               # 이번 턴에 이미 낸 연결 문구
         self._block_reasons: dict[str, str] = {}    # 막힌 호출 id → 검사 사유 코드(AG-T56 번호 되묻기)
         self._heard: dict[str, dict[str, str]] = {}  # AG-T57: {호출 id: 이번 고객 말에서 들은 번호로 조회한 인수}
@@ -591,6 +684,14 @@ class Responder:
         self._tool_t: float | None = None           # 마지막 함수 결과 수신 시각(perf_counter)
         self._after_any: float | None = None        # 그 뒤 첫 유성 PCM 송신까지(ms, 채움말 포함)
         self._after_answer: float | None = None     # 그 뒤 본 응답 첫 유성 PCM까지(ms)
+
+    def _learnable(self, text: str) -> bool:
+        """캐시에 남겨도 되는 문장: 숫자(번호·금액·날짜)와 발신자 이름이 없고 짧은 일반 문장만."""
+        if not text or len(text) > 80 or re.search(r"[0-9]", text) or _KO_DIGITS.search(text.replace(" ", "")):
+            return False
+        caller = getattr(self.guard, "caller", None) or {}
+        name = str(caller.get("name") or "").strip() if isinstance(caller, dict) else ""
+        return not (name and name in text)
 
     def prefetch(self, system: str, messages: list[Message]) -> Prefetch:
         return Prefetch(self.llm.stream(system, list(messages), self.tools))
@@ -692,8 +793,18 @@ class Responder:
 
         async def fire() -> None:
             await asyncio.sleep(self.settings.filler_delay_ms / 1000)
+            if self._filler_used:
+                return
+            emp = getattr(self, "_empathy", None)
+            if emp is not None and not self.empathy_used:      # 공감 한마디가 있으면 일반 대기 문구 대신(AG-T61)
+                speaker.play(emp[0], emp[1])
+                self.empathy_used = emp[0]
+                self._filler_used = True
+                if tlog:
+                    tlog.event("empathy", text=emp[0], at="filler")
+                return
             pcm = self.cache.get(filler)
-            if pcm and not self._filler_used:
+            if pcm:
                 speaker.play(filler, pcm)
                 self._filler_used = True
                 if tlog:
@@ -767,13 +878,33 @@ class Responder:
     async def respond(self, system: str, messages: list[Message], send_audio: AudioSink, *,
                       spoken: list[str] | None = None, prefetch: Prefetch | None = None,
                       log: TurnLog | None = None,
-                      play_idle_ms: Callable[[], float] | None = None) -> list[str]:
-        """말한 문장 목록을 반환한다(spoken에도 차례로 채운다). LLM·TTS 오류는 그대로 올린다."""
+                      play_idle_ms: Callable[[], float] | None = None,
+                      empathy: tuple[str, bytes] | None = None,
+                      empathy_at: float | None = None) -> list[str]:
+        """말한 문장 목록을 반환한다(spoken에도 차례로 채운다). LLM·TTS 오류는 그대로 올린다.
+        empathy=(문구, 캐시 PCM), empathy_at=time.monotonic() 기준 시각(AG-T61): 그 시각까지 이 응답이 아무 소리도
+        내지 못했으면(답이 늦으면) 공감 한마디를 먼저 보낸다. 함수 대기 문구 자리에도 쓴다. 보냈으면 self.empathy_used."""
         spoken = [] if spoken is None else spoken
         tlog = log
         msgs = list(messages)
         s = self.settings
-        speaker = _Speaker(self.tts, send_audio, spoken, s, tlog, on_audio=self._on_audio, play_idle_ms=play_idle_ms)
+        self._empathy = empathy if empathy and empathy[1] else None
+        self.empathy_used = ""
+        speaker = _Speaker(self.tts, send_audio, spoken, s, tlog, on_audio=self._on_audio,
+                           play_idle_ms=play_idle_ms,
+                           cache=self.cache if getattr(s, "tts_sentence_cache", True) else None,
+                           learn=self._learnable)
+        empathy_task: asyncio.Task | None = None
+        if self._empathy is not None and empathy_at is not None:
+            async def fire_empathy() -> None:
+                delay = empathy_at - time.monotonic()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                if not self.empathy_used and speaker.play_urgent(*self._empathy):
+                    self.empathy_used = self._empathy[0]
+                    if tlog:
+                        tlog.event("empathy", text=self._empathy[0])
+            empathy_task = asyncio.create_task(fire_empathy())
         self.tool_log = []
         self._filler_used = False
         self._bridges = []
@@ -804,6 +935,10 @@ class Responder:
                     tlog.event("json_text_dropped", round=rnd, chars=len(sent))
                 return True
             sent = speech_safe(sent, self._tool_names, self._mask_number)
+            if self.empathy_used and answered == 0 and _APOLOGY_ONLY.search(sent):
+                return True                          # 공감 한마디로 이미 사과했다: 같은 사과를 또 하지 않는다
+            if answered == 0 and spoken and _YES_START.match(spoken[-1]) and _YES_START.match(sent):
+                sent = _YES_START.sub("", sent, count=1).strip()   # "네, 고객님. 네, 천천히…" → 두 번째 "네,"를 뺀다
             if not sent:
                 return True
             if s.max_response_chars and said_chars + _nchars(sent) > s.max_response_chars:
@@ -967,11 +1102,15 @@ class Responder:
                     speaker.play(s.apology, pcm)
                 else:
                     speaker.say(s.apology)
-            await speaker.finish()
+            await speaker.finish()                  # 음성 합성을 기다리는 동안에도 공감 한마디가 끼어들 수 있게, 끝난 뒤에 정리
+            if empathy_task is not None:
+                empathy_task.cancel()
             self._log_after_tool(tlog)
         except BaseException:
             if filler_task is not None:
                 filler_task.cancel()
+            if empathy_task is not None:
+                empathy_task.cancel()
             speaker.cancel()
             raise
         if not spoken:

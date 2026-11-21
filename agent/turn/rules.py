@@ -103,6 +103,18 @@ def _strip_tail(token: str, tails: tuple[str, ...]) -> tuple[str, str]:
     return token, ""
 
 
+# 번호를 부르며 끝을 올려 읽으면 STT가 "2026-09-29?"처럼 물음표를 붙인다 → 질문이 아니라 번호를 부르는 중으로 본다
+_DIGITS_THEN_Q = re.compile(r"(?:^|\s)[0-9][0-9\-.\s]*[?？]\s*$")
+
+
+def short_order_id(d: str) -> bool:
+    """연도 앞 두 자리를 뺀 주문번호(YYMMDD + 7자리 = 13자리, 예: 260929 0004550)인가."""
+    if len(d) != 13 or not d.isdigit() or d[0] != "2":
+        return False
+    mm, dd = int(d[2:4]), int(d[4:6])
+    return 1 <= mm <= 12 and 1 <= dd <= 31
+
+
 def _digits_result(tokens: list[str]) -> RuleResult | None:
     """끝부분이 숫자열이면 자릿수로 판정. 숫자로 끝나지 않으면 None."""
     if not tokens:
@@ -141,7 +153,7 @@ def _digits_result(tokens: list[str]) -> RuleResult | None:
     elif n <= 4:
         return RuleResult(SCORES["weak_final"], "weak_final")   # "3", "1234"(뒷자리) 등
     else:
-        complete = n >= ORDER_DIGITS              # 주문번호 자릿수(공식: 8자리-7자리)
+        complete = n >= ORDER_DIGITS or short_order_id(digits)   # 주문번호 자릿수(공식: 8자리-7자리, 또는 YYMMDD+7)
     if complete:
         return RuleResult(SCORES["digits_complete"], "digits_complete")
     return RuleResult(SCORES["digits_incomplete"], "digits_incomplete")
@@ -167,7 +179,7 @@ def analyze(text: str) -> RuleResult:
     t = _norm(text)
     if not t:
         return RuleResult(0.0, "neutral")
-    if "?" in t[-3:] or "？" in t[-3:]:
+    if ("?" in t[-3:] or "？" in t[-3:]) and not _DIGITS_THEN_Q.search(t):
         return RuleResult(SCORES["question"], "question")
     t = _PUNCT_TRAIL.sub("", t)
     if not t:

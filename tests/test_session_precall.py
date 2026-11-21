@@ -393,7 +393,7 @@ async def test_commit_uses_text_based_opener_and_rebuilds_system(tmp_path):
     s = Settings()
     ws = FakeWS(start_msg(), utterance(50))
     llm = FakeLLM(text_events("주문 내역을 보니 배송 중입니다."), ws=ws)
-    stt = FakeSTT(ws, partial="주문 조회 좀 해 주세요", final="주문 조회 좀 해 주세요")
+    stt = FakeSTT(ws, partial="주문 조회 좀 해 주세요 공일공 일이삼사 오육칠팔", final="주문 조회 좀 해 주세요 공일공 일이삼사 오육칠팔")
     deps, det = make_deps(tmp_path, ws=ws, llm=llm, stt=stt, log_writer=writer(tmp_path),
                           extra_cache={s.opener_lookup: LOOKUP_PCM, s.opener_apology: SORRY_PCM})
     await run(ws, deps)
@@ -428,7 +428,7 @@ async def test_lookup_opener_turn_uses_alternate_filler(tmp_path):
             yield LLMEvent("done")
 
     llm = SlowSecondLLM()
-    stt = FakeSTT(ws, partial="주문 조회해 주세요", final="주문 조회해 주세요")
+    stt = FakeSTT(ws, partial="주문 조회해 주세요 공일공 일이삼사 오육칠팔", final="주문 조회해 주세요 공일공 일이삼사 오육칠팔")
     deps, _ = make_deps(tmp_path, ws=ws, llm=llm, stt=stt, settings_kw={"filler_delay_ms": 10},
                         extra_cache={s.opener_lookup: LOOKUP_PCM, s.opener_lookup_filler: alt_pcm})
     await run(ws, deps)

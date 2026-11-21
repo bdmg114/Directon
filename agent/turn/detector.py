@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from agent.core.types import TurnDecision, TurnSignals
 import re
 
-from agent.turn.rules import ORDER_DIGITS, SHORT_ANSWERS, STRONG_HOLD, RuleResult, analyze
+from agent.turn.rules import ORDER_DIGITS, SHORT_ANSWERS, STRONG_HOLD, RuleResult, analyze, short_order_id
 
 TEXT_ONLY_FAST_KINDS = frozenset({"short_answer", "digits_complete"})
 
@@ -128,9 +128,9 @@ _KOR_TOK = re.compile(f"^[{_DIGIT_SYL}]+$")
 
 def digits_partial(text: str) -> bool:
     t = re.sub(r"\s+", " ", text or "").strip()
-    if not t or "?" in t[-3:] or "？" in t[-3:]:
-        return False
-    t = re.sub(r"[\s.,!~…·\"'”’)\]]+$", "", t)
+    if not t or (("?" in t[-3:] or "？" in t[-3:]) and not re.search(r"[0-9][0-9\-.\s]*[?？]\s*$", t)):
+        return False                      # 진짜 질문. 숫자 뒤 물음표("2026-09-29?")는 번호를 부르는 중으로 본다
+    t = re.sub(r"[\s.,!~…·\"'”’)\]?？]+$", "", t)
     toks = [re.sub(r"[,.]", "", w) for w in t.split(" ")]
     toks = [w for w in toks if w]
     run: list[str] = []
@@ -151,7 +151,7 @@ def digits_partial(text: str) -> bool:
         return len(d) < 11
     if d.startswith("0"):
         return len(d) < 9
-    return len(d) < ORDER_DIGITS
+    return len(d) < ORDER_DIGITS and not short_order_id(d)
 
 
 _END_TAILS = ("이에요", "예요", "입니다", "이요", "요", "번이요", "번이에요", "번")

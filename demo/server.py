@@ -58,8 +58,53 @@ def _item_text(item: dict) -> str:
     return f"{name}({opt})×{qty}" if opt else f"{name}×{qty}"
 
 
+KIT_DATA = ROOT / "DIRECT_ON 2026 Starter Kit" / "data"
+
+
+def build_members_official(kit_data: Path | str = KIT_DATA) -> list[dict]:
+    """공식 키트(mock_db.json의 get_order_info)에서 전화번호별 주문을 모은 회원 목록.
+    이름은 연습 문항의 발신자 정보(customer_profile)에서 같은 전화번호로 찾는다(없으면 '고객 뒷자리')."""
+    kit = Path(kit_data)
+    db = json.loads((kit / "mock_db.json").read_text(encoding="utf-8"))
+    names: dict[str, str] = {}
+    cases = kit / "practice_cases.jsonl"
+    if cases.is_file():
+        for line in cases.read_text(encoding="utf-8").splitlines():
+            prof = (json.loads(line).get("customer_profile") or {}) if line.strip() else {}
+            ph = "".join(ch for ch in str(prof.get("phone") or "") if ch.isdigit())
+            if ph and prof.get("name"):
+                names.setdefault(ph, str(prof["name"]))
+    orders_by_phone: dict[str, dict[str, dict]] = {}
+    for e in db.get("get_order_info", []):
+        phone = "".join(ch for ch in str((e.get("arguments") or {}).get("buyer_cellphone") or "") if ch.isdigit())
+        res = e.get("result") or {}
+        if not phone or res.get("status") != "ok":
+            continue
+        for o in (res.get("data") or {}).get("orders", []):
+            oid = o.get("주문번호")
+            if not oid:
+                continue
+            cur = orders_by_phone.setdefault(phone, {}).setdefault(oid, {
+                "order_id": oid, "order_speech": digits_for_speech(oid.replace("-", ""), "order"),
+                "products": [], "status": o.get("배송상태", ""), "ordered_at": o.get("주문일자", ""),
+                "total_amount": None})
+            if o.get("제품명") and o["제품명"] not in cur["products"]:
+                cur["products"].append(o["제품명"])
+    out = []
+    for phone, orders in orders_by_phone.items():
+        rows = sorted(orders.values(), key=lambda o: o["ordered_at"], reverse=True)
+        out.append({"name": names.get(phone) or f"고객 {phone[-4:]}", "phone": phone,
+                    "phone_speech": digits_for_speech(phone, "phone"), "grade": "",
+                    "orders": [{**{k: v for k, v in o.items() if k != "products"},
+                                "product": ", ".join(o["products"])} for o in rows]})
+    return sorted(out, key=lambda m: m["name"])
+
+
 def build_members(data_path: Path | str = DATA_PATH) -> list[dict]:
-    """회원마다 이름·전화(읽기)·등급·주문 요약(주문번호·읽기·상품·상태)."""
+    """회원마다 이름·전화(읽기)·등급·주문 요약(주문번호·읽기·상품·상태).
+    옛 가정 자료(data_path)가 없으면 공식 키트 자료로 만든다."""
+    if not Path(data_path).is_file():
+        return build_members_official() if (KIT_DATA / "mock_db.json").is_file() else []
     data = json.loads(Path(data_path).read_text(encoding="utf-8"))
     orders_by_phone: dict[str, list[dict]] = {}
     for o in data.get("orders", []):
@@ -88,8 +133,11 @@ def build_history_presets(presets_path: Path | str = PRESETS_PATH,
     """프리셋 목록. 각 항목에 caller_name(회원 이름, 비회원·없는 번호면 None)을 붙인다."""
     raw = json.loads(Path(presets_path).read_text(encoding="utf-8"))
     presets = raw.get("presets", []) if isinstance(raw, dict) else raw
-    data = json.loads(Path(data_path).read_text(encoding="utf-8"))
-    names = {m.get("phone_number"): m.get("name") for m in data.get("members", [])}
+    if Path(data_path).is_file():
+        data = json.loads(Path(data_path).read_text(encoding="utf-8"))
+        names = {m.get("phone_number"): m.get("name") for m in data.get("members", [])}
+    else:
+        names = {m["phone"]: m["name"] for m in build_members(data_path)}
     out = []
     for p in presets:
         item = dict(p)

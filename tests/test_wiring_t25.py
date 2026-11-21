@@ -274,7 +274,8 @@ async def test_warmup_synthesizes_all_opener_phrases(tmp_path):
     from agent import knowledge
 
     extra = [p for p in opener_phrases(s) if p not in s.cached_phrases()]
-    more = [p for p in (*knowledge.FAIL_SENTENCES.values(), *knowledge.TOOL_PHRASES.values(), knowledge.NEUTRAL_PHRASE)
+    more = [p for p in (*knowledge.FAIL_SENTENCES.values(), *knowledge.TOOL_PHRASES.values(), knowledge.NEUTRAL_PHRASE,
+                          *knowledge.COMMON_SENTENCES, *knowledge.empathy_variants())
             if p not in s.cached_phrases() and p not in extra]
     assert extra and info["opener_synthesized"] == len(set(extra + more))   # 첫 마디 후보 + 함수 문구·실패 문장
     for p in more:

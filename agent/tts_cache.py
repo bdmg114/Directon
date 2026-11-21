@@ -273,7 +273,31 @@ LOOKUP_KEYWORDS = (
 _LONG_NUMBER = re.compile(r"\d{4,}|[공영일이삼사오육칠팔구]{4,}")
 
 
-def select_opener_for_text(text: str, settings: Settings, default: str | None = None) -> str:
+# 조회 없이 끝나는 의도(정책·구매 안내·상품 설명·상담원 연결 등). 이 의도로 확신하면 "확인해 드릴게요"를 쓰지 않는다.
+_NO_LOOKUP_INTENTS = frozenset({"return_policy", "policy", "purchase", "product", "agent", "other_channel",
+                                "health", "feedback"})
+
+
+def _lookup_likely(t: str, can_lookup: bool | None) -> bool:
+    """이번 턴에 실제로 조회가 돌 것 같은가. "확인해 드릴게요" 같은 첫 마디는 이때만 쓴다(조회 없이 번호를 묻거나
+    "어렵습니다"로 끝나면 어색하다). 번호가 이번 말에 있으면 조회. 조회 낱말만 있으면 쓸 수 있는 번호(발신자·이전 대화)가
+    있을 때만(can_lookup=None이면 예전처럼 낱말만 본다). 의도 추정 1위가 조회 없는 의도면 아니다."""
+    if _LONG_NUMBER.search(t.replace(" ", "")):
+        return True
+    if not any(k in t for k in LOOKUP_KEYWORDS):
+        return False
+    try:
+        from agent import intents
+        e = intents.estimate(t)
+        if e.top in _NO_LOOKUP_INTENTS:         # 첫 마디는 틀려도 손해가 작다 → 힌트 문턱 없이 1위만 본다
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True if can_lookup is None else bool(can_lookup)
+
+
+def select_opener_for_text(text: str, settings: Settings, default: str | None = None,
+                           can_lookup: bool | None = None) -> str:
     """확정 시점 텍스트 → 첫 마디. 불만·사과 필요 → opener_apology, 조회·처리 요청 → opener_lookup, 그 밖 → default."""
     base = default if default is not None else settings.openers[0]
     t = (text or "").strip()
@@ -281,7 +305,7 @@ def select_opener_for_text(text: str, settings: Settings, default: str | None = 
         return base
     if settings.opener_apology and any(k in t for k in APOLOGY_KEYWORDS):
         return settings.opener_apology
-    if settings.opener_lookup and (any(k in t for k in LOOKUP_KEYWORDS) or _LONG_NUMBER.search(t.replace(" ", ""))):
+    if settings.opener_lookup and _lookup_likely(t, can_lookup):
         return settings.opener_lookup
     return base
 
@@ -328,17 +352,20 @@ def has_long_number(text: str) -> bool:
     return bool(_LONG_NUMBER.search((text or "").replace(" ", "")))
 
 
-def opener_kind(text: str, settings: Settings, has_identifier: bool = True) -> str:
+def opener_kind(text: str, settings: Settings, has_identifier: bool = True, *,
+                can_lookup: bool | None = None) -> str:
     """확정 시점 텍스트 → 상황(select_opener_for_text와 같은 키워드). 불만 → apology, 조회·처리 → lookup, 그 밖 → simple.
     has_identifier=False(발신자 번호·이전 대화 번호·이번 말의 번호가 모두 없음)면 조회 요청이어도 simple:
     곧바로 번호를 되물을 턴이라 "확인해 드릴게요"로 시작하면 말이 어긋난다(데모 피드백 DEMO-20261121-162448)."""
+    if can_lookup is not None:                  # 같은 뜻의 다른 이름(AG-T59 쪽 호출)
+        has_identifier = can_lookup
     t = (text or "").strip()
     if not t:
         return "simple"
     if any(k in t for k in APOLOGY_KEYWORDS):
         return "apology"
-    if any(k in t for k in LOOKUP_KEYWORDS) or has_long_number(t):
-        return "lookup" if has_identifier or has_long_number(t) else "simple"
+    if _lookup_likely(t, has_identifier):
+        return "lookup"
     return "simple"
 
 
