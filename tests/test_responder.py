@@ -800,3 +800,12 @@ def test_speech_swaps_the_mask_token_for_the_number_or_a_phrase():
     assert speech_safe("[PHONE]번으로 접수해 드렸습니다.", (), "010, 1234, 5678") == "010, 1234, 5678번으로 접수해 드렸습니다."
     assert speech_safe("[PHONE]번으로 접수해 드렸습니다.") == "말씀하신 번호으로 접수해 드렸습니다."
     assert "[PHONE]" not in speech_safe("연락처는 [PHONE] 맞으실까요?")
+
+
+def test_masked_phone_with_prefix_is_not_read_twice():
+    # 데모(DEMO-20261121-180355): LLM이 "010, [PHONE]"으로 써 "010, 010, 1234, 5678"로 읽혔다
+    from agent.responder import speech_safe
+    m = "010, 1234, 5678"
+    assert speech_safe("접수되었습니다. 010, [PHONE]번으로 전화드리겠습니다.", (), m) == \
+        "접수되었습니다. 010, 1234, 5678번으로 전화드리겠습니다."
+    assert speech_safe("[PHONE]번으로 접수했어요.", (), m) == "010, 1234, 5678번으로 접수했어요."

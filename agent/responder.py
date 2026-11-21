@@ -392,7 +392,9 @@ def json_piece(sentence: str) -> bool:
     return bool(_BRACE.search(s) or _KEY_TEXT.search(s))
 
 
-_MASK_TEXT = re.compile(r"\[\s*PHONE\s*\]", re.I)
+# LLM이 가려진 번호 앞에 앞자리를 덧붙여 쓰면("010, [PHONE]") 바꾼 뒤 010이 두 번 읽힌다(데모 DEMO-20261121-180355) →
+# 표식 바로 앞의 010·공일공은 표식과 함께 바꾼다
+_MASK_TEXT = re.compile(r"(?:(?:010|공일공|공 일 공)\s*[,.\-]?\s*)?\[\s*PHONE\s*\]", re.I)
 _MASK_TEXT_BEON = re.compile(r"\[\s*PHONE\s*\](?:\s*번)?", re.I)
 
 
