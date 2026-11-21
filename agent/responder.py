@@ -152,10 +152,11 @@ class Prefetch:
 
 
 # ── 송신 파이프라인 ───────────────────────────────────
-# 문장 사이 쉼(사용자 요청 2026-11-21): 상담원이 말하는 소리 조각(첫 마디·채움말·결과 문구·답 문장) 사이에 이만큼의 무음을
-# 보장한다. 조각 끝의 무음과 응답을 기다리며 이미 흐른 시간은 빼고 모자란 만큼만 채운다. 그 턴의 첫 소리 앞에는 넣지 않는다.
+# 문장 사이 쉼(사용자 요청 2026-11-21: "각 단계 사이에는 무조건 0.8초의 무음"): 상담원이 말하는 소리 조각(첫 마디·채움말·
+# 결과 문구·답 문장·번호 되읽기) 사이에 최소 이만큼의 무음을 보장한다. 조각 끝의 무음과, 앞 소리 재생이 다 끝난 뒤 실제로
+# 흐른 무음(세션 재생 시계, play_idle_ms)은 이미 들린 쉼이라 빼고 모자란 만큼만 채운다. 그 턴의 첫 소리 앞에는 넣지 않는다.
 # Settings.sentence_gap_ms가 음수면 이 기본값(테스트는 conftest에서 0으로 둔다).
-DEFAULT_SENTENCE_GAP_MS = 300
+DEFAULT_SENTENCE_GAP_MS = 800
 _GAP_SILENT_RMS = 300.0         # 이보다 작은 20ms 프레임은 무음으로 센다(조각 끝 무음 길이)
 _FRAME = 640                    # 20ms, 16kHz s16le
 
@@ -186,8 +187,10 @@ class _Speaker:
 
     def __init__(self, tts: TTSProvider, send_audio: AudioSink, spoken: list[str],
                  settings: Settings, tlog: TurnLog | None,
-                 on_audio: Callable[[str, bytes], None] | None = None):
+                 on_audio: Callable[[str, bytes], None] | None = None,
+                 play_idle_ms: Callable[[], float] | None = None):
         self.tts = tts
+        self.play_idle_ms = play_idle_ms    # 보낸 소리가 다 재생된 뒤 흐른 시간(ms, 재생 중이면 0). 없으면 빼지 않는다
         self.send_audio = send_audio
         self.on_audio = on_audio            # (kind: "pcm"=캐시 필러 | "tts"=본 응답, pcm) — 송신 직전 호출(AG-T21 측정)
         self.spoken = spoken
@@ -196,7 +199,6 @@ class _Speaker:
         self.q: asyncio.Queue = asyncio.Queue()
         self.synths: list[asyncio.Task] = []
         self._tail_ms = 0.0                 # 지금까지 보낸 소리 끝의 무음 길이
-        self._play_end: float | None = None # 보낸 소리가 실시간으로 재생을 마칠 것으로 보는 시각(perf_counter)
         self.task = asyncio.create_task(self._run())
 
     def say(self, text: str) -> None:
@@ -225,9 +227,6 @@ class _Speaker:
 
     async def _send(self, pcm: bytes) -> None:
         await self.send_audio(pcm)
-        now = time.perf_counter()
-        start = now if self._play_end is None or self._play_end < now else self._play_end
-        self._play_end = start + len(pcm) / 32000.0
         self._tail_ms = _tail_silence_ms(pcm, self._tail_ms)
 
     async def _gap(self) -> None:
@@ -236,8 +235,11 @@ class _Speaker:
         if gap <= 0 or not self.spoken:
             return
         need = gap - self._tail_ms
-        if self._play_end is not None:              # 앞 조각이 이미 다 재생된 뒤 기다린 시간도 쉼이다
-            need -= max(0.0, (time.perf_counter() - self._play_end) * 1000)
+        if self.play_idle_ms is not None:           # 앞 소리가 다 재생된 뒤 이미 흐른 무음도 쉼이다(세션 재생 시계 기준)
+            try:
+                need -= max(0.0, float(self.play_idle_ms()))
+            except Exception:  # noqa: BLE001 — 시계를 못 읽으면 쉼을 다 채운다
+                pass
         if need < 20:
             return
         n = int(need * 16) * 2                      # 16 샘플/ms × 2바이트
@@ -759,13 +761,14 @@ class Responder:
 
     async def respond(self, system: str, messages: list[Message], send_audio: AudioSink, *,
                       spoken: list[str] | None = None, prefetch: Prefetch | None = None,
-                      log: TurnLog | None = None) -> list[str]:
+                      log: TurnLog | None = None,
+                      play_idle_ms: Callable[[], float] | None = None) -> list[str]:
         """말한 문장 목록을 반환한다(spoken에도 차례로 채운다). LLM·TTS 오류는 그대로 올린다."""
         spoken = [] if spoken is None else spoken
         tlog = log
         msgs = list(messages)
         s = self.settings
-        speaker = _Speaker(self.tts, send_audio, spoken, s, tlog, on_audio=self._on_audio)
+        speaker = _Speaker(self.tts, send_audio, spoken, s, tlog, on_audio=self._on_audio, play_idle_ms=play_idle_ms)
         self.tool_log = []
         self._filler_used = False
         self._bridges = []

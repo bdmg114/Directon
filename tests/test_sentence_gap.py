@@ -48,3 +48,26 @@ def test_gap_setting_and_tail_measure():
     assert _tail_silence_ms(VOICED + SILENT * 3, 0) == 60
     assert _tail_silence_ms(SILENT * 2, 40) == 80
     assert _tail_silence_ms(VOICED, 100) == 0
+
+
+
+async def test_real_idle_playback_counts_toward_gap():
+    sink = Sink()
+    sp = _Speaker(FakeTTS(), sink, ["네, 고객님."], settings(sentence_gap_ms=800), None, play_idle_ms=lambda: 500.0)
+    sp.say("배송 중입니다.")
+    await sp.finish()
+    assert sink.data == zeros_ms(300) + pcm_for("배송 중입니다.")   # 이미 0.5초 조용했으니 0.3초만
+
+
+async def test_no_extra_gap_when_already_silent_long_enough():
+    sink = Sink()
+    sp = _Speaker(FakeTTS(), sink, ["네, 고객님."], settings(sentence_gap_ms=800), None, play_idle_ms=lambda: 2000.0)
+    sp.say("배송 중입니다.")
+    await sp.finish()
+    assert sink.data == pcm_for("배송 중입니다.")
+
+
+def test_default_gap_is_800ms(monkeypatch):
+    from agent import responder
+    monkeypatch.setattr(responder, "DEFAULT_SENTENCE_GAP_MS", 800)
+    assert sentence_gap_ms(settings()) == 800

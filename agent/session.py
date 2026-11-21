@@ -1495,7 +1495,8 @@ class Session:
                     try:
                         await responder.respond(
                             system, messages, send_response, spoken=spoken,
-                            prefetch=pc.prefetch if pc is not None else None, log=self.tlog)
+                            prefetch=pc.prefetch if pc is not None else None, log=self.tlog,
+                            play_idle_ms=lambda: max(0.0, self._now_ms() - self._play_end_ms))
                     finally:
                         st["tool_log"] = list(responder.tool_log)
                         self.tlog.set("presynth_reused", tts.used)
