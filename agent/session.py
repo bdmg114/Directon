@@ -894,6 +894,14 @@ class Session:
         await self._debug({"type": "debug.barge_in", "late": True, "voiced_ms": self.speech_ms,
                            "heard_ms": round(self._speech_onset_ms - prev["first"])})
 
+    def _tail_backchannel(self) -> bool:
+        """AG-T59: 직전 답이 아직 재생 중일 때 시작된 barge_in_ms 미만의 소리(맞장구·스피커 되울림).
+        응답 중 300ms 미만 맞장구를 무시하는 것과 같은 기준을 turn.end 뒤 재생 구간에도 쓴다.
+        측정기는 문항 하나가 연결 하나라 직전 턴이 없어 해당하지 않는다."""
+        prev = self._prev_play
+        return (self.barge_in and prev is not None and self._speech_onset_ms < prev["end"]
+                and self.speech_ms < _opt(self.s, "barge_in_ms"))
+
     async def _process_frame(self, frame: bytes) -> None:
         stt = await self._ensure_stt()
         if stt is not None:
@@ -928,6 +936,14 @@ class Session:
                 self.speech_ms = 0                      # 짧은 잡음은 잊는다
                 self.silence_ms = 0
             elif self.speech_ms:
+                self.silence_ms += ms
+            return
+        if self._tail_backchannel():
+            if self.silence_ms + ms >= self.s.precall_silence_ms:
+                self.tlog.event("tail_backchannel_ignored", speech_ms=self.speech_ms)
+                self.speech_ms = 0
+                self.silence_ms = 0
+            else:
                 self.silence_ms += ms
             return
         if self.silence_ms == 0:

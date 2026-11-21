@@ -293,6 +293,29 @@ async def test_late_barge_in_after_turn_end_marks_context(tmp_path):
     assert S2 not in last[-2].content
 
 
+async def test_short_sound_while_previous_answer_still_plays_is_not_a_new_turn(tmp_path):
+    """AG-T59: 직전 답이 아직 재생 중일 때 들어온 300ms 미만 소리(맞장구·스피커 되울림)는 새 턴이 아니다."""
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 10, after=5, anchor="turn_end",
+                 turns=1, after_end_frames=150)
+    llm = ScriptLLM(text_events(S1 + " ", S2), text_events("네, 감사합니다."))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), ("네", "네")])
+    deps, _ = _deps(tmp_path, ws, llm, stt)
+    await run(ws, deps)
+    assert ws.inject_pos == 10                                  # 소리는 실제로 들어갔다
+    assert ws.turn_ends == 1 and len(llm.calls) == 1
+
+
+async def test_short_answer_after_previous_answer_finished_is_still_a_turn(tmp_path):
+    """AG-T59: 재생이 끝난 뒤의 짧은 "네"는 지금처럼 답한다(씹지 않는다)."""
+    ws = BargeWS(start_msg(), utterance(50), interrupt=[SPEECH] * 10, after=300, anchor="turn_end", turns=2)
+    llm = ScriptLLM(text_events(S1 + " ", S2), text_events("네, 감사합니다."))
+    stt = FakeSTT(texts=[("배송 언제 와요?", "배송 언제 와요?"), ("네", "네")])
+    deps, _ = _deps(tmp_path, ws, llm, stt)
+    await run(ws, deps)
+    assert ws.turn_ends == 2 and len(llm.calls) == 2
+    assert llm.calls[-1]["messages"][-1].content == "네"
+
+
 def test_demo_client_requests_barge_in_and_stops_playback():
     from pathlib import Path
     js = (Path(__file__).resolve().parents[1] / "demo" / "static" / "app.js").read_text(encoding="utf-8")
