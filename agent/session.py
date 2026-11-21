@@ -1140,7 +1140,8 @@ class Session:
         guard = None
         if user_text is not None:                       # 실제 응답용: 함수 실행 전 검사 문맥
             guard = GuardContext(tools=tools, user_text=user_text, history=self._context_history(),
-                                 caller=info.caller, results=list(self._preload_results))
+                                 caller=info.caller, results=list(self._preload_results),
+                                 spoken=[h.get("text") or "" for h in self.live_history if h.get("role") == "customer"])
         return Responder(self.d.llm, tts or self.d.tts, call_tool, tools=tools, settings=settings or self.s,
                          cache=self.d.cache, now=info.now, guard=guard)
 

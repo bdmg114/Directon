@@ -95,10 +95,13 @@
     }
     const name = el.callerName.value.trim(), phone = el.callerPhone.value.replace(/\D/g, "");
     const caller = name || phone ? { name: name || null, phone: phone || null, email: null } : null;
+    // debug: true가 기본(AG-T56). 상담원이 debug.*를 지원하면 인식 텍스트·함수 호출·끼어들기가 화면에 나온다.
+    // 지원하지 않는 상담원은 모르는 필드라 무시한다. 끄려면 추가 필드에 {"debug": false}.
     const msg = Object.assign({
       type: "session.start", session_id: sessionId, case_id: "FEEDBACK", now: el.now.value.trim(),
       history, caller, tools_url: el.toolsUrl.value.trim() || null,
       audio: { encoding: "pcm_s16le", sample_rate: 16000, channels: 1 },
+      debug: true,
     }, extra);
     msg.type = "session.start";
     msg.session_id = sessionId;
