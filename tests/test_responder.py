@@ -704,3 +704,99 @@ async def test_called_with_absent_when_only_format_differs_or_guard_filled_it(mo
         "S", [Message("user", "x")], Sink())
     for body in tool_bodies(llm.calls[1]):
         assert "_called_with" not in body and "_note" not in body
+
+
+# ── AG-T57 들은 번호로 조회했는데 내역이 없으면 그 번호를 코드가 되읽는다 ─────────
+# 공식 정의처럼 주문번호·전화번호 중 하나만 있으면 되는 조회 함수
+LOOKUP_TOOLS = [{"name": "get_order_info", "description": "주문 조회",
+                 "parameters": {"type": "object", "required": [],
+                                "properties": {"order_id": {"type": ["string", "null"]},
+                                               "buyer_cellphone": {"type": ["string", "null"]}}}}]
+
+
+def _real_guard(user_text="", history=None, caller=None, spoken=None):
+    from agent import guards
+    return guards.GuardContext(tools=LOOKUP_TOOLS, user_text=user_text, history=history or [], caller=caller,
+                               spoken=spoken or [])
+
+
+async def _lookup_once(guard, args, result, answer="LLM이 만든 답입니다."):
+    seen = []
+
+    async def call_tool(name, a):
+        seen.append(a)
+        return result
+
+    llm = FakeLLM(tool_events("get_order_info", args), text_events(answer))
+    r = Responder(llm, FakeTTS(), call_tool, tools=LOOKUP_TOOLS, settings=settings(), guard=guard)
+    spoken = await r.respond("S", [Message("user", guard.user_text or "x")], Sink())
+    return r, tool_bodies(llm.calls[1])[0], spoken, seen
+
+
+async def test_notfound_readback_phone_llm_writes_token_and_server_speaks_the_number():
+    """휴대폰 번호는 LLM에 표식만 주고(게이트웨이가 어차피 가린다), 답 속의 [PHONE]을 서버가 실제 번호로 바꿔 읽는다."""
+    from agent.responder import NOTFOUND_READBACK_NOTE
+    guard = _real_guard(user_text="어, 아마 010. 1234-5678.")
+    r, body, spoken, seen = await _lookup_once(guard, {"buyer_cellphone": "010-1234-5678"}, {"status": "not_found"},
+                                               answer="[PHONE]번으로 조회했는데 내역이 없네요. 번호가 맞으실까요?")
+    assert seen == [{"buyer_cellphone": "01012345678"}]
+    assert body["_looked_up_with"] == "[PHONE]" and NOTFOUND_READBACK_NOTE in body["_note"]
+    assert "01012345678" not in json.dumps(body) and "1234" not in json.dumps(body)   # 번호는 LLM에 가지 않는다
+    assert spoken == ["010, 1234, 5678번으로 조회했는데 내역이 없네요.", "번호가 맞으실까요?"]
+    assert "_looked_up_with" not in r.tool_log[0]["result"]             # 통화 기록에는 원래 결과만
+
+
+async def test_masked_phone_argument_is_restored_and_read_back():
+    """AG-T58: 게이트웨이가 번호를 가려 LLM이 "[PHONE]"을 넣어도 받아쓴 글의 번호로 조회하고 그 번호를 되읽는다."""
+    guard = _real_guard(user_text="어, 아마 010. 1234-5678.")
+    _, body, spoken, seen = await _lookup_once(guard, {"order_id": None, "buyer_cellphone": "[PHONE]"},
+                                               {"status": "not_found"}, answer="[PHONE]으로 조회했는데 맞으실까요?")
+    assert seen == [{"buyer_cellphone": "01012345678"}]
+    assert spoken == ["010, 1234, 5678으로 조회했는데 맞으실까요?"]
+
+
+async def test_notfound_readback_order_number_is_given_to_the_llm():
+    """주문번호는 가려지지 않으므로 값을 주고 LLM이 읽는다. ok인데 목록이 빈 결과도 내역 없음으로 본다."""
+    guard = _real_guard(user_text="주문번호 20260929-0033428 이에요")
+    _, body, _, _ = await _lookup_once(guard, {"order_id": "202609290033428"}, {"status": "ok", "data": {"orders": []}})
+    assert body["_looked_up_with"] == "20260929-0033428"
+
+
+async def test_no_readback_when_lookup_succeeds():
+    guard = _real_guard(user_text="010-1234-5678")
+    _, body, _, _ = await _lookup_once(guard, {"buyer_cellphone": "01012345678"},
+                                       {"status": "ok", "data": {"orders": [{"제품명": "x"}]}})
+    assert "_looked_up_with" not in body
+
+
+async def test_no_readback_for_caller_or_history_number():
+    guard = _real_guard(user_text="배송 언제 와요", caller={"name": "김", "phone": "01012345678", "email": None})
+    _, body, _, _ = await _lookup_once(guard, {"buyer_cellphone": "01012345678"}, {"status": "not_found"})
+    assert "_looked_up_with" not in body
+    hist = [{"role": "customer", "text": "전화번호는 010-1234-5678입니다"}]
+    _, body, _, _ = await _lookup_once(_real_guard(user_text="네 그 번호요", history=hist),
+                                       {"buyer_cellphone": "01012345678"}, {"status": "not_found"})
+    assert "_looked_up_with" not in body
+
+
+async def test_readback_for_number_spoken_in_an_earlier_turn_of_this_call():
+    """이번 통화의 앞선 턴에서 받아 적은 번호도 잘못 들었을 수 있다(history에 있어도 되읽는다)."""
+    hist = [{"role": "customer", "text": "전화번호는 010-1234-5678입니다"}]
+    guard = _real_guard(user_text="네 맞아요 조회해 주세요", history=hist, spoken=["전화번호는 010-1234-5678입니다"])
+    _, body, spoken, _ = await _lookup_once(guard, {"buyer_cellphone": "01012345678"}, {"status": "not_found"},
+                                            answer="[PHONE]번이 맞으실까요?")
+    assert body["_looked_up_with"] == "[PHONE]" and spoken == ["010, 1234, 5678번이 맞으실까요?"]
+
+
+async def test_notfound_readback_switch_off(monkeypatch):
+    monkeypatch.setenv("DIRECTON_NOTFOUND_READBACK", "0")
+    guard = _real_guard(user_text="010-1234-5678")
+    _, body, _, _ = await _lookup_once(guard, {"buyer_cellphone": "01012345678"}, {"status": "not_found"})
+    assert "_looked_up_with" not in body
+
+
+def test_speech_swaps_the_mask_token_for_the_number_or_a_phrase():
+    from agent.responder import speech_safe
+    assert speech_safe("[PHONE]번으로 접수해 드렸습니다.", (), "010, 1234, 5678") == "010, 1234, 5678번으로 접수해 드렸습니다."
+    assert speech_safe("[PHONE]번으로 접수해 드렸습니다.") == "말씀하신 번호으로 접수해 드렸습니다."
+    assert "[PHONE]" not in speech_safe("연락처는 [PHONE] 맞으실까요?")

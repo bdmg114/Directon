@@ -392,12 +392,19 @@ def json_piece(sentence: str) -> bool:
     return bool(_BRACE.search(s) or _KEY_TEXT.search(s))
 
 
-def speech_safe(sentence: str, tool_names: Any = ()) -> str:
+_MASK_TEXT = re.compile(r"\[\s*PHONE\s*\]", re.I)
+_MASK_TEXT_BEON = re.compile(r"\[\s*PHONE\s*\](?:\s*번)?", re.I)
+
+
+def speech_safe(sentence: str, tool_names: Any = (), mask_number: str = "") -> str:
     """LLM이 함수 호출이나 함수 이름을 글로 써 버린 부분을 뺀다. 남는 말이 없으면 ""(그 문장은 읽지 않는다).
     조각난 JSON이 섞인 문장은 통째로 읽지 않는다."""
     if json_piece(sentence):
         return ""
-    s = _CALL_TEXT.sub(" ", sentence or "")
+    # AG-T58: 답 속의 [PHONE]은 실제 번호로 바꿔 읽는다. 바꿀 번호를 모르면 표식을 소리 내 읽지 않게 말로 바꾼다
+    s = (_MASK_TEXT.sub(mask_number, sentence or "") if mask_number
+         else _MASK_TEXT_BEON.sub("말씀하신 번호", sentence or ""))
+    s = _CALL_TEXT.sub(" ", s)
     s = _ROUTE_TEXT.sub(" ", _strip_json(s))
     s = "".join(" " if _foreign(c) else c for c in s)
     for n in tool_names or ():
@@ -411,6 +418,17 @@ BRIDGE_NOTE = ("_already_said의 말은 방금 고객에게 이미 했다. 그 �
 # 검사(agent.guards)가 번호 인수를 다른 번호로 맞춰 실행했을 때 그 결과에 붙인다(P0133-03: 접수는 4402, 답은 받아쓴 4002를 읽음)
 CALLED_WITH_NOTE = ("이 함수는 _called_with의 번호로 실행됐다. 그 번호를 고객에게 말할 때는 고객이 방금 말한 글의 번호가 아니라 "
                     "_called_with의 값을 쓴다.")
+# AG-T57: 이번 통화에서 받아 적은 번호로 조회했는데 내역이 없으면 그 결과에 붙인다. 번호를 말해 주지 않으면 고객은
+# "번호를 잘못 들은 것"과 "번호는 맞는데 내역이 없는 것"을 구분할 수 없다(2026-11-21 직접 통화 피드백).
+# 조회가 성공했을 때는 붙이지 않는다(성공 때도 읽게 하면 응대 점수가 떨어졌다: AG-T33 보강 2). 스위치 DIRECTON_NOTFOUND_READBACK(기본 켬).
+# 휴대폰 번호는 게이트웨이가 "[PHONE]"으로 가려 LLM이 볼 수 없다(AG-T58). 그래서 LLM은 문장만 쓰고 번호 자리에 [PHONE]을 두며,
+# 소리로 내보내기 직전에 서버가 실제 번호로 바꾼다(speech_safe의 mask_number). 주문번호는 가려지지 않아 값을 그대로 준다.
+NOTFOUND_READBACK_ENV = "DIRECTON_NOTFOUND_READBACK"
+MASK_TOKEN = "[PHONE]"
+NOTFOUND_READBACK_NOTE = ("이 조회는 고객이 방금 말한 번호(_looked_up_with)로 했고 확인되는 내역이 없었다. 받아 적은 번호라 잘못 "
+                          "들었을 수 있다. 답에서 그 번호를 넣어 \"…번으로 조회했는데 확인되는 내역이 없네요. 번호가 맞으실까요?\"처럼 "
+                          "자연스럽게 확인한다. 번호를 말하지 않은 채 내역이 없다고만 하지 않는다. _looked_up_with가 \"[PHONE]\"이면 "
+                          "답에 [PHONE]이라고 그대로 쓴다. 시스템이 실제 번호로 바꿔 읽는다.")
 # 이번 턴에 검사에서 막힌 호출이 있으면 마지막 회차(함수 목록 없이 부른다)의 시스템 글 끝에 붙인다. 없으면 모델이 막힌 호출을
 # 글로 다시 쓴다(P0074-01). 2026-11-21 gpt-5.4-mini 실측(조회 실행 → 접수 막힘 뒤 마지막 회차): 안내 없이는 38회 중 16회 호출을
 # 글로 썼고, 이 글을 붙이면 34회 중 0회. "함수를 더 부를 수 없다"고 쓰면 그것을 이유로 상담원 연결을 안내하는 답이 섞여(12회 중 2회)
@@ -433,6 +451,27 @@ def _dashed_phone(d: str) -> str:
     if len(d) == 10 and d.startswith("01"):
         return f"{d[:3]}-{d[3:6]}-{d[6:]}"
     return d
+
+
+def guards_status(res: Any) -> str:
+    from agent import guards
+    return guards.lookup_status(res)
+
+
+def _readback_on() -> bool:
+    import os
+    return os.environ.get(NOTFOUND_READBACK_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def readback_number(nums: dict[str, str]) -> str:
+    """{인수 키: 숫자} → 끊어 읽을 번호 하나("010, 1234, 5678"). 주문번호가 있으면 주문번호를 읽는다."""
+    from agent import guards
+    from agent.normalize import group_digits
+    for keys, kind in ((guards.ORDER_KEYS, "order"), (guards.PHONE_KEYS, "phone")):
+        for k in keys:
+            if nums.get(k):
+                return group_digits(nums[k], kind)
+    return ""
 
 
 def _number_changes(asked: Any, used: Any) -> dict[str, str]:
@@ -478,6 +517,8 @@ class Responder:
         self._tool_names = [t.get("function", t).get("name") for t in self.tools if isinstance(t, dict)]
         self._filler_used = False
         self._bridges: list[str] = []               # 이번 턴에 이미 낸 연결 문구
+        self._heard: dict[str, dict[str, str]] = {}  # AG-T57: {호출 id: 이번 고객 말에서 들은 번호로 조회한 인수}
+        self._mask_number = ""                      # AG-T58: 답 속의 [PHONE]을 바꿔 읽을 실제 번호("010, 1234, 5678")
         self._tool_t: float | None = None           # 마지막 함수 결과 수신 시각(perf_counter)
         self._after_any: float | None = None        # 그 뒤 첫 유성 PCM 송신까지(ms, 채움말 포함)
         self._after_answer: float | None = None     # 그 뒤 본 응답 첫 유성 PCM까지(ms)
@@ -498,6 +539,9 @@ class Responder:
             return tc, v.blocked
         if tc.name in guards.ACTION_FUNCS:
             self.guard.called.append(tc.name)        # 같은 회차의 두 번째 접수를 막는다
+        heard = guards.heard_lookup_numbers(tc.name, v.args, self.guard)
+        if heard:
+            self._heard[tc.id] = heard
         return ToolCall(tc.id, tc.name, v.args), None
 
     async def _exec_tool(self, tc: ToolCall, tlog: TurnLog | None) -> dict:
@@ -542,6 +586,15 @@ class Responder:
                 if tc.name not in self.guard.called:
                     self.guard.called.append(tc.name)
         return results, [tc for _, tc in passed], changed
+
+    def _spoken_phone(self) -> str:
+        """이번 고객 말에 유효한 전화번호가 하나뿐이면 끊어 읽을 꼴("010, 1234, 5678"), 아니면 ""."""
+        if self.guard is None:
+            return ""
+        from agent import guards
+        from agent.normalize import group_digits
+        d = guards.heard_phone(self.guard)
+        return group_digits(d, "phone") if d else ""
 
     # ── 조회 뒤 답(AG-T21) ──
     def _on_audio(self, kind: str, pcm: bytes) -> None:
@@ -616,6 +669,8 @@ class Responder:
         self.tool_log = []
         self._filler_used = False
         self._bridges = []
+        self._heard = {}
+        self._mask_number = self._spoken_phone()
         self._tool_t = self._after_any = self._after_answer = None
         said_chars = 0
         overflow = False
@@ -639,7 +694,7 @@ class Responder:
                 if tlog:
                     tlog.event("json_text_dropped", round=rnd, chars=len(sent))
                 return True
-            sent = speech_safe(sent, self._tool_names)
+            sent = speech_safe(sent, self._tool_names, self._mask_number)
             if not sent:
                 return True
             if s.max_response_chars and said_chars + _nchars(sent) > s.max_response_chars:
@@ -751,6 +806,18 @@ class Responder:
                         if i in changed:
                             extra["_called_with"] = changed[i]
                             notes.append(CALLED_WITH_NOTE)
+                        heard = self._heard.get(tc.id)
+                        if heard and _readback_on() and guards_status(res) == "not_found":
+                            from agent import guards as _g
+                            if any(k in _g.ORDER_KEYS for k in heard):      # 주문번호는 가려지지 않는다: 읽기 쉬운 꼴로 준다
+                                extra["_looked_up_with"] = next(_g.format_order_id(d) for k, d in heard.items()
+                                                                if k in _g.ORDER_KEYS)
+                            else:                                           # 휴대폰 번호: LLM은 표식만, 실제 번호는 서버가 끼운다
+                                extra["_looked_up_with"] = MASK_TOKEN
+                                self._mask_number = readback_number(heard)
+                            notes.append(NOTFOUND_READBACK_NOTE)
+                            if tlog:
+                                tlog.event("notfound_readback", tool=tc.name, keys=sorted(heard))
                         if extra:
                             body = {**res, **extra, "_note": " ".join(notes)}
                     msgs.append(Message("tool", json.dumps(body, ensure_ascii=False),

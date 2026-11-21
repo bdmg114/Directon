@@ -759,3 +759,32 @@ def test_callback_with_garbled_phone_is_not_filed_but_confirmed():
     assert "한 자리씩" in v.blocked["message"] and "처리됐다고 말하지" in v.blocked["message"]
     c = GuardContext(tools=[], user_text="010 5182 4529 염다태", history=hist)
     assert check("request_callback", {"customer_name": "염다태", "phone_number": "010 5182 4529"}, c).blocked is None
+
+
+# ── AG-T58 게이트웨이가 가린 전화번호("[PHONE]") 되살리기 ─────────────
+def test_masked_phone_is_replaced_by_the_single_phone_heard_this_turn():
+    v = check("get_order_info", {"order_id": None, "buyer_cellphone": "[PHONE]"}, ctx(user_text="어, 아마 010. 1234-5678."))
+    assert v.blocked is None and v.args == {"buyer_cellphone": "01012345678"}
+
+
+def test_lookup_without_any_number_uses_the_single_phone_heard_this_turn():
+    v = check("get_order_info", {}, ctx(user_text="전화번호는 010 1234 5678 입니다"))
+    assert v.blocked is None and v.args == {"buyer_cellphone": "01012345678"}
+
+
+def test_masked_phone_stays_blocked_when_no_or_several_numbers_were_heard():
+    assert check("get_order_info", {"buyer_cellphone": "[PHONE]"}, ctx(user_text="전화번호요?")).reason == "missing"
+    two = ctx(user_text="010-1234-5678 아니면 010-9999-8888 둘 중 하나예요")
+    assert check("get_order_info", {"buyer_cellphone": "[PHONE]"}, two).blocked is not None
+
+
+def test_masked_phone_falls_back_to_caller_number_before_heard_one():
+    """믿는 번호(발신자)가 있으면 기존 규칙대로 그 번호가 먼저다."""
+    c = ctx(user_text="010-1234-5678이요", caller={"name": "김", "phone": "01055556666", "email": None})
+    assert check("get_order_info", {"buyer_cellphone": "[PHONE]"}, c).args == {"buyer_cellphone": "01055556666"}
+
+
+def test_masked_phone_in_callback_uses_heard_number():
+    c = ctx(user_text="김하나이고 010-1234-5678로 전화 주세요", history=[{"role": "customer", "text": "전화 주문 하고 싶어요"}])
+    v = check("request_callback", {"customer_name": "김하나", "phone_number": "[PHONE]"}, c)
+    assert v.blocked is None and v.args["phone_number"] == "01012345678"

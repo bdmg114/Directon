@@ -39,6 +39,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "ORDER_KEYS", "PHONE_KEYS", "LOOKUP_FUNCS", "SEARCH_FUNCS", "ACTION_FUNCS",
     "GuardContext", "Verdict", "known_numbers", "format_order_id", "check",
+    "heard_lookup_numbers", "lookup_status", "heard_phone",
 ]
 
 ORDER_KEYS = ("order_id", "order_number")
@@ -91,6 +92,7 @@ class GuardContext:
     caller: dict | None = None                          # {"name","phone","email"} 또는 None
     results: list[dict] = field(default_factory=list)   # 이번 턴에 이미 받은 함수 결과(미리 조회한 주문 포함)
     called: list[str] = field(default_factory=list)     # 이번 턴에 이미 실행한 함수 이름
+    spoken: list[str] = field(default_factory=list)     # 이번 통화의 앞선 턴에서 받아 적은 고객 말(history에도 들어 있다, AG-T57)
 
 
 @dataclass
@@ -372,6 +374,26 @@ def _snap(d: str, kind: str, kn: _Known) -> str:
     return cands[0] if len(cands) == 1 else d
 
 
+# AG-T58: BAZE 게이트웨이는 요청 안의 휴대폰 번호(010-1234-5678, 01012345678 등)를 "[PHONE]"으로 바꿔 LLM에 넘긴다
+# (2026-11-21 실측: 주문번호·일반 전화·한글로 읽은 번호는 그대로). LLM은 번호를 못 보고 인수에 "[PHONE]"을 넣는다.
+# 서버는 가려지지 않은 받아쓰기 글을 갖고 있으므로 그 글의 번호로 되돌린다.
+_MASKED = re.compile(r"\[\s*[A-Za-z_ ]+\s*\]|PHONE", re.I)
+
+
+def _unmask_phone(value: Any, kn: _Known) -> str:
+    """가려진 전화번호 인수("[PHONE]")를 실제 번호로. 이번 고객 말에 유효한 전화번호가 하나뿐이면 그 번호,
+    없으면 믿는 출처(이전 대화·발신자)에 하나뿐인 번호. 고를 수 없으면 ""."""
+    if not isinstance(value, str) or not _MASKED.search(value):
+        return ""
+    for src in (kn.heard["phones"], kn.trusted["phones"]):
+        cands = [p for p in dict.fromkeys(src) if valid_phone(p)]
+        if len(cands) == 1:
+            return cands[0]
+        if cands:
+            return ""
+    return ""
+
+
 def _normalize_ids(out: dict, kn: _Known) -> None:
     """규칙 2·3: 번호 인수를 정리하고 아는 번호에 맞춘다(out을 바꾼다)."""
     for keys, kind in ((ORDER_KEYS, "orders"), (PHONE_KEYS, "phones")):
@@ -379,6 +401,8 @@ def _normalize_ids(out: dict, kn: _Known) -> None:
             if key not in out:
                 continue
             d = _id_digits(out[key], phone=kind == "phones")
+            if not d and kind == "phones":
+                d = _unmask_phone(out[key], kn)
             if not d:
                 del out[key]                        # null·빈 값·숫자 없는 값이 진짜 번호를 가리지 않게
                 continue
@@ -429,6 +453,40 @@ def _lookup_status(res: Any) -> str:
     if status == "ok" and isinstance(data, dict) and data and all(isinstance(v, (list, dict)) and not v for v in data.values()):
         return "not_found"
     return status
+
+
+def heard_phone(ctx: GuardContext) -> str:
+    """이번 고객 말(STT)에 유효한 전화번호가 하나뿐이면 그 숫자, 아니면 ""(AG-T58: 답 속의 [PHONE]을 바꿔 읽는 데 쓴다)."""
+    bucket = _new_bucket()
+    _scan_text(ctx.user_text, bucket, [])
+    cands = [p for p in dict.fromkeys(bucket["phones"]) if valid_phone(p)]
+    return cands[0] if len(cands) == 1 else ""
+
+
+def lookup_status(res: Any) -> str:
+    """조회 결과의 status(공개용). ok인데 목록이 비었으면 "not_found"."""
+    return _lookup_status(res)
+
+
+def heard_lookup_numbers(name: str, args: Any, ctx: GuardContext) -> dict[str, str]:
+    """조회 함수를 '이번 고객 말에서 들은 번호'로 실행하는가. {번호 인수 키: 숫자}.
+
+    session.start의 이전 대화(글), 함수 인수·결과, 발신자 정보에 있던 번호는 넣지 않는다. 그런 번호는 잘못 들었을
+    가능성이 낮아 되읽을 필요가 없다(AG-T57: 조회 실패 때 되읽을 번호를 고르는 데 쓴다)."""
+    if name not in LOOKUP_FUNCS or not isinstance(args, dict):
+        return {}
+    # 이번 통화에서 받아 적은 앞선 고객 말(ctx.spoken)도 '들은 번호'다: history에서 빼고 믿는 번호를 모은다
+    spoken = {s for s in (ctx.spoken or []) if isinstance(s, str) and s}
+    hist = [h for h in (ctx.history if isinstance(ctx.history, (list, tuple)) else [])
+            if not (isinstance(h, dict) and h.get("role") == "customer" and h.get("text") in spoken)]
+    before = _collect(GuardContext(tools=[], user_text="", history=hist, caller=ctx.caller, results=[]))
+    trusted = set(before.trusted["phones"]) | set(before.trusted["orders"])
+    out: dict[str, str] = {}
+    for k in ORDER_KEYS + PHONE_KEYS:
+        d = _digits(args.get(k)) if args.get(k) not in (None, "") else ""
+        if d and d not in trusted:
+            out[k] = d
+    return out
 
 
 def _lookups_done(ctx: GuardContext) -> list[tuple[str, set[str], str]]:
@@ -505,6 +563,12 @@ def _lookup_numbers(name: str, out: dict, kn: _Known, ctx: GuardContext, caller_
             for k, _ in heard_orders:
                 del out[k]
             out["order_id"] = format_order_id(only)
+            return "", ""
+    if not fresh and not heard_phones and not heard_orders and not (name == "get_order_info" and "order_id" in out):
+        # AG-T58: LLM이 번호 없이 조회를 불렀다(번호가 가려져 못 본 경우). 이번 고객 말에 유효한 전화번호가 하나뿐이면 그 번호로.
+        spoken_now = [p for p in dict.fromkeys(kn.heard["phones"]) if valid_phone(p) and p not in used]
+        if len(spoken_now) == 1:
+            out[phone_key] = spoken_now[0]
             return "", ""
     if fresh:
         turn = [r for r in (ctx.results if isinstance(ctx.results, (list, tuple)) else [])
